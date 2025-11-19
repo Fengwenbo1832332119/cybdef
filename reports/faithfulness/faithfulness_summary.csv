@@ -1,0 +1,9 @@
+﻿metric,value
+pearson_red_r,0.0504306760249206
+pearson_red_p,0.8528555329280405
+pearson_blue_r,-0.2794348941760016
+pearson_blue_p,0.2945760061740046
+spearman_red_r,0.33971930642977194
+spearman_red_p,0.19797322691504143
+spearman_blue_r,-0.0715833989590879
+spearman_blue_p,0.7922082437574547

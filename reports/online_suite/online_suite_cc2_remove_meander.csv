@@ -1,0 +1,6 @@
+﻿variant,reward_red,reward_blue,rule_score
+baseline,0.0,0.0,33.712984287462845
+delete[last]_PrivilegeEscalate+ExploitRemoteService,0.0,0.0,33.349363317855364
+swap[freq_weighted],0.0,0.0,33.712741538017816
+"time_shift(PrivilegeEscalate:-2,ExploitRemoteService:+1)",0.0,0.0,33.612984287462844
+sufficiency_related_only,0.0,0.0,35.63873924073188

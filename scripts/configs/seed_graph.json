@@ -1,0 +1,174 @@
+{
+  "meta": {
+    "version": "s2-v1",
+    "scenario": "Scenario2",
+    "description": "Three-subnet network for Scenario2: user hosts, enterprise servers, operational hosts/server"
+  },
+
+  "subnets": [
+    {
+      "id": "subnet_user",
+      "cidr": "10.0.174.208/28",
+      "role": "user",
+      "reward_weight": -0.1
+    },
+    {
+      "id": "subnet_enterprise",
+      "cidr": "10.0.39.112/28",
+      "role": "enterprise",
+      "reward_weight": -1.0
+    },
+    {
+      "id": "subnet_operational",
+      "cidr": "10.0.190.64/28",
+      "role": "operational",
+      "reward_weight": -1.0
+    }
+  ],
+
+  "hosts": [
+    {
+      "id": "Defender",
+      "subnet": "subnet_enterprise",
+      "role": "defender",
+      "criticality": 0
+    },
+    {
+      "id": "Enterprise0",
+      "subnet": "subnet_enterprise",
+      "role": "enterprise_server",
+      "criticality": 3
+    },
+    {
+      "id": "Enterprise1",
+      "subnet": "subnet_enterprise",
+      "role": "enterprise_server",
+      "criticality": 3
+    },
+    {
+      "id": "Enterprise2",
+      "subnet": "subnet_enterprise",
+      "role": "enterprise_server",
+      "criticality": 3
+    },
+
+    {
+      "id": "Op_Host0",
+      "subnet": "subnet_operational",
+      "role": "operational_host",
+      "criticality": 2
+    },
+    {
+      "id": "Op_Host1",
+      "subnet": "subnet_operational",
+      "role": "operational_host",
+      "criticality": 2
+    },
+    {
+      "id": "Op_Host2",
+      "subnet": "subnet_operational",
+      "role": "operational_host",
+      "criticality": 2
+    },
+    {
+      "id": "Op_Server0",
+      "subnet": "subnet_operational",
+      "role": "operational_server",
+      "criticality": 4
+    },
+
+    {
+      "id": "User0",
+      "subnet": "subnet_user",
+      "role": "user_host",
+      "criticality": 1
+    },
+    {
+      "id": "User1",
+      "subnet": "subnet_user",
+      "role": "user_host",
+      "criticality": 1
+    },
+    {
+      "id": "User2",
+      "subnet": "subnet_user",
+      "role": "user_host",
+      "criticality": 1
+    },
+    {
+      "id": "User3",
+      "subnet": "subnet_user",
+      "role": "user_host",
+      "criticality": 1
+    },
+    {
+      "id": "User4",
+      "subnet": "subnet_user",
+      "role": "user_host",
+      "criticality": 1
+    }
+  ],
+
+  "services": [
+    {
+      "id": "svc_ssh",
+      "name": "ssh",
+      "port": 22,
+      "techniques": ["T1046"]
+    },
+    {
+      "id": "svc_http",
+      "name": "http",
+      "port": 80,
+      "techniques": ["T1018"]
+    }
+  ],
+
+  "techniques": [
+    {
+      "id": "T1046",
+      "name": "Network Service Scanning",
+      "phase": "Discovery"
+    },
+    {
+      "id": "T1018",
+      "name": "Remote System Discovery",
+      "phase": "Discovery"
+    }
+  ],
+
+  "edges": [
+
+
+    { "source": "User0", "target": "Enterprise0", "relation": "reachable" },
+    { "source": "User1", "target": "Enterprise0", "relation": "reachable" },
+    { "source": "User2", "target": "Enterprise1", "relation": "reachable" },
+    { "source": "User3", "target": "Enterprise1", "relation": "reachable" },
+    { "source": "User4", "target": "Enterprise2", "relation": "reachable" },
+
+    { "source": "Enterprise0", "target": "Op_Server0", "relation": "reachable" },
+    { "source": "Enterprise1", "target": "Op_Server0", "relation": "reachable" },
+    { "source": "Enterprise2", "target": "Op_Server0", "relation": "reachable" },
+
+    { "source": "Op_Host0", "target": "Op_Server0", "relation": "local" },
+    { "source": "Op_Host1", "target": "Op_Server0", "relation": "local" },
+    { "source": "Op_Host2", "target": "Op_Server0", "relation": "local" },
+
+
+    { "source": "svc_ssh",  "target": "Enterprise0", "relation": "runs_on" },
+    { "source": "svc_ssh",  "target": "Enterprise1", "relation": "runs_on" },
+    { "source": "svc_http", "target": "Enterprise1", "relation": "runs_on" },
+    { "source": "svc_http", "target": "Op_Server0",  "relation": "runs_on" },
+
+
+    { "source": "T1046", "target": "svc_ssh",  "relation": "exploits" },
+    { "source": "T1018", "target": "svc_http", "relation": "exploits" }
+  ],
+
+  "reward_schema": {
+    "user_compromise_per_turn": -0.1,
+    "enterprise_compromise_per_turn": -1.0,
+    "operational_compromise_per_turn": -1.0,
+    "operational_impact_per_turn": -10.0
+  }
+}

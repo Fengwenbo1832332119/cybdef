@@ -1,0 +1,46 @@
+# scripts/configs/ppo.yaml
+# ---------------------------------------------
+# PPO 超参数 - baseline 版（更健康、更稳健）
+# ---------------------------------------------
+
+# 训练轮数（每个 update 采样 horizon 步，再做若干 PPO epoch）
+# 250 * 2048 ≈ 512k steps，足够学出稳定策略，但不会极端过拟合
+num_updates: 250
+
+# 每轮 rollout 步数（序列长度）
+horizon: 2048
+
+# mini-batch 大小 & PPO epoch 次数
+mini_batch_size: 256
+ppo_epochs: 8
+
+# 折扣因子 & GAE 衰减
+gamma: 0.99
+gae_lambda: 0.95
+
+# PPO 裁剪范围
+clip_range: 0.2
+
+# 学习率（actor / critic）
+pi_lr: 3e-4
+vf_lr: 3e-4
+
+# 探索强度（越大越“乱试”，越小越早收敛）
+# 这里略微提高一点，给策略更多空间探索规律，而不是被规则“带着跑”
+entropy_coef: 0.01
+
+# value loss 权重
+value_coef: 0.5
+
+# 规则先验权重：logits <- logits + rule_coef * prior
+# 0.08：让规则有“强烈意见”，但不至于完全压死 PPO 的学习
+rule_coef: 0.15
+
+# 掩码放大（目前训练脚本里主要用 hard mask，alpha 只在 smoke_test 里起作用）
+mask_alpha: 2.0
+
+# 梯度裁剪
+max_grad_norm: 0.5
+
+# 优先用 GPU
+device: "cuda"

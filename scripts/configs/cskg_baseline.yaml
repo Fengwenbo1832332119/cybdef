@@ -1,0 +1,315 @@
+# scripts/configs/cskg.yaml
+# -------------------------------------------------------
+# CSKG / KnowledgeBridge 规则配置（v0.4-light-hostaware）
+#
+# 设计目标：
+# 1. 安静时：多 Monitor，少 Restore，禁 Remove & Decoy
+# 2. 有嫌疑但未攻陷：Investigate 为主，Decoy/Monitor 作为辅助，不再消失
+# 3. 已被攻陷：Remove 为主，但不过分锁死核心资产，保留 PPO 探索空间
+# 4. Enterprise / Op_Server0 被攻陷时：适度偏向 Remove/Restore 核心资产
+# 5. 奖励塑形“偏软”，主要做 nudging，不抢 PPO 主导权
+# -------------------------------------------------------
+
+meta:
+  version: "0.4-light-hostaware"
+  description: "Host-aware CSKG (轻量先验 + Remove/Restore 适度偏置 + Decoy/Monitor 有存在感)"
+
+# 与 CybORGWrapper._extract_facts 保持一致
+facts:
+  - suspicious_activity
+  - host_compromised
+  - critical_host_breached
+  - critical_host
+  - host_discovered
+  - high_risk_state
+  - recent_reward
+  - bad_recent_reward
+  - very_bad_recent_reward
+  - enterprise_compromised
+  - opserver_compromised
+  - ophosts_compromised
+  - user_compromised
+  - only_user_compromised
+
+# actions 这里只是分组，真正匹配靠规则里的 actions + 前缀匹配
+actions:
+  monitor:
+    - "MonitorTraffic"
+
+  investigate:
+    - "InvestigateHost"
+
+  # host-aware Remove/Restore（根据你 _setup_action_space 的命名）
+  remove:
+    - "RemoveMalware"              # 覆盖通配（RemoveMalware_*）
+    - "RemoveMalware_Defender"
+    - "RemoveMalware_Enterprise0"
+    - "RemoveMalware_Enterprise1"
+    - "RemoveMalware_Enterprise2"
+    - "RemoveMalware_Op_Host0"
+    - "RemoveMalware_Op_Host1"
+    - "RemoveMalware_Op_Host2"
+    - "RemoveMalware_Op_Server0"
+    - "RemoveMalware_User0"
+    - "RemoveMalware_User1"
+    - "RemoveMalware_User2"
+    - "RemoveMalware_User3"
+    - "RemoveMalware_User4"
+
+  restore:
+    - "RestoreService"
+    - "RestoreService_Defender"
+    - "RestoreService_Enterprise0"
+    - "RestoreService_Enterprise1"
+    - "RestoreService_Enterprise2"
+    - "RestoreService_Op_Host0"
+    - "RestoreService_Op_Host1"
+    - "RestoreService_Op_Host2"
+    - "RestoreService_Op_Server0"
+    - "RestoreService_User0"
+    - "RestoreService_User1"
+    - "RestoreService_User2"
+    - "RestoreService_User3"
+    - "RestoreService_User4"
+
+  sleep:
+    - "Sleep"
+
+  decoys:
+    - "DecoyApache"
+    - "DecoyFemitter"
+    - "DecoyHarakaSMPT"
+    - "DecoySmss"
+    - "DecoySSHD"
+    - "DecoySvchost"
+    - "DecoyTomcat"
+    - "DecoyVsftpd"
+
+# =======================================================
+# 1) 动作掩码规则（mask_rules）
+# =======================================================
+mask_rules:
+
+  # 1.1 安静时禁止所有 Remove / Decoy（避免空气 remove 和瞎铺蜜罐）
+  - name: "Avoid-Remove-Decoy-When-Quiet"
+    condition: "NOT FACT('suspicious_activity') AND NOT FACT('host_compromised')"
+    effect:
+      type: "hard_mask"
+      actions:
+        - "RemoveMalware"
+        - "RemoveMalware_Defender"
+        - "RemoveMalware_Enterprise0"
+        - "RemoveMalware_Enterprise1"
+        - "RemoveMalware_Enterprise2"
+        - "RemoveMalware_Op_Host0"
+        - "RemoveMalware_Op_Host1"
+        - "RemoveMalware_Op_Host2"
+        - "RemoveMalware_Op_Server0"
+        - "RemoveMalware_User0"
+        - "RemoveMalware_User1"
+        - "RemoveMalware_User2"
+        - "RemoveMalware_User3"
+        - "RemoveMalware_User4"
+        - "DecoyApache"
+        - "DecoyFemitter"
+        - "DecoyHarakaSMPT"
+        - "DecoySmss"
+        - "DecoySSHD"
+        - "DecoySvchost"
+        - "DecoyTomcat"
+        - "DecoyVsftpd"
+
+  # 1.2 有嫌疑 / 已攻陷 / 高风险时禁止 Sleep（防止着火还睡觉）
+  - name: "No-Sleep-Under-Suspicion"
+    condition: "FACT('suspicious_activity') OR FACT('host_compromised') OR FACT('high_risk_state')"
+    effect:
+      type: "hard_mask"
+      actions:
+        - "Sleep"
+
+# =======================================================
+# 2) 动作先验规则（prior_rules）
+#   - logits 级别的偏置：只“轻轻推一把”
+# =======================================================
+prior_rules:
+
+  # 2.1 环境安静：偏向 Monitor，稍微压一下 Restore
+  - name: "Prefer-Monitor-When-Quiet"
+    condition: "NOT FACT('suspicious_activity') AND NOT FACT('host_compromised')"
+    effect:
+      actions:
+        - "MonitorTraffic"
+      value: 0.4
+
+  - name: "Deprioritize-Restore-When-Quiet"
+    condition: "NOT FACT('suspicious_activity') AND NOT FACT('host_compromised')"
+    effect:
+      actions:
+        - "RestoreService"
+        - "RestoreService_Enterprise0"
+        - "RestoreService_Enterprise1"
+        - "RestoreService_Enterprise2"
+        - "RestoreService_Op_Server0"
+      value: -0.4
+
+  # 2.2 有可疑活动但尚未攻陷：Investigate 为主
+  - name: "Prefer-Investigate-On-Suspicion"
+    condition: "FACT('suspicious_activity') AND NOT FACT('host_compromised')"
+    effect:
+      actions:
+        - "InvestigateHost"
+      value: 0.7
+
+  # 2.3 有可疑活动：Decoy 略抬，给一点存在感（不要像之前那样几乎消失）
+  - name: "Prefer-Decoy-Under-Suspicion"
+    condition: "FACT('suspicious_activity')"
+    effect:
+      actions:
+        - "DecoyApache"
+        - "DecoyFemitter"
+        - "DecoyHarakaSMPT"
+        - "DecoySmss"
+        - "DecoySSHD"
+        - "DecoySvchost"
+        - "DecoyTomcat"
+        - "DecoyVsftpd"
+      value: 0.22
+
+  # 2.4 Investigate 比 Decoy 更优先（还没确认攻陷时）
+  - name: "Investigate-Priority-Over-Decoy"
+    condition: "FACT('suspicious_activity') AND NOT FACT('host_compromised')"
+    effect:
+      actions:
+        - "InvestigateHost"
+      value: 0.4
+
+  # 2.5 only_user_compromised：优先清 User，抑制核心资产 Remove
+  - name: "Prefer-Remove-User-OnlyUserCompromised"
+    condition: "FACT('only_user_compromised')"
+    effect:
+      actions:
+        - "RemoveMalware_User0"
+        - "RemoveMalware_User1"
+        - "RemoveMalware_User2"
+        - "RemoveMalware_User3"
+        - "RemoveMalware_User4"
+      value: 0.6
+
+  - name: "Deprioritize-Remove-Core-When-OnlyUserCompromised"
+    condition: "FACT('only_user_compromised')"
+    effect:
+      actions:
+        - "RemoveMalware_Enterprise0"
+        - "RemoveMalware_Enterprise1"
+        - "RemoveMalware_Enterprise2"
+        - "RemoveMalware_Op_Server0"
+      value: -0.6
+
+  # 2.6 Enterprise 被攻陷：适度优先 Remove Enterprise*
+  - name: "Prefer-Remove-Enterprise-When-Compromised"
+    condition: "FACT('enterprise_compromised')"
+    effect:
+      actions:
+        - "RemoveMalware_Enterprise0"
+        - "RemoveMalware_Enterprise1"
+        - "RemoveMalware_Enterprise2"
+      value: 0.7
+
+  # 2.7 Op_Server0 被攻陷：强一点但不锁死（从 1.5 降到 0.8）
+  - name: "Prefer-Remove-OpServer-When-Compromised"
+    condition: "FACT('opserver_compromised')"
+    effect:
+      actions:
+        - "RemoveMalware_Op_Server0"
+      value: 0.8
+
+  - name: "Prefer-Restore-Core-When-Stabilizing"
+  # 核心被攻陷，但局势已经没那么惨（non-very-bad）
+    condition: "(FACT('opserver_compromised') OR FACT('critical_host_breached')) AND NOT FACT('very_bad_recent_reward')"
+    effect:
+     actions:
+       - "RestoreService_Op_Server0"
+       - "RestoreService_Enterprise1"
+     value: 0.25
+
+
+# =======================================================
+# 3) 奖励塑形规则（reward_rules）
+#   - 尺度控制在 [-0.1, 0.2] 附近，主要做轻量 nudging
+# =======================================================
+reward_rules:
+
+  # 3.1 安静状态下 Restore / Decoy：轻度惩罚（避免瞎操作，但保留一点探索）
+  - name: "Penalize-Useless-Restore-When-Quiet"
+    condition: "NOT FACT('suspicious_activity') AND NOT FACT('host_compromised')"
+    effect:
+      type: "add"
+      actions:
+        - "RestoreService"
+        - "RestoreService_Enterprise0"
+        - "RestoreService_Enterprise1"
+        - "RestoreService_Enterprise2"
+        - "RestoreService_Op_Server0"
+      value: -0.10
+
+  - name: "Penalty-Decoy-NoSuspicion"
+    condition: "NOT FACT('suspicious_activity') AND NOT FACT('host_compromised')"
+    effect:
+      type: "add"
+      actions:
+        - "DecoyApache"
+        - "DecoyFemitter"
+        - "DecoyHarakaSMPT"
+        - "DecoySmss"
+        - "DecoySSHD"
+        - "DecoySvchost"
+        - "DecoyTomcat"
+        - "DecoyVsftpd"
+      value: 0.03
+
+  # 3.2 安静时 Monitor：轻微奖励（鼓励有节奏的巡检）
+  - name: "Reward-Monitor-NoSuspicion"
+    condition: "NOT FACT('suspicious_activity') AND NOT FACT('host_compromised')"
+    effect:
+      type: "add"
+      actions:
+        - "MonitorTraffic"
+      value: 0.04
+
+  # 3.3 host 已被攻陷且最近 reward 很差：鼓励 Remove（不限 host，交给 host-aware prior 再细分）
+  - name: "Reward-Remove-When-Compromised-And-BadReward"
+    condition: "FACT('host_compromised') AND FACT('bad_recent_reward')"
+    effect:
+      type: "add"
+      actions:
+        - "RemoveMalware_Enterprise0"
+        - "RemoveMalware_Enterprise1"
+        - "RemoveMalware_Enterprise2"
+        - "RemoveMalware_Op_Host0"
+        - "RemoveMalware_Op_Host1"
+        - "RemoveMalware_Op_Host2"
+        - "RemoveMalware_Op_Server0"
+        - "RemoveMalware_User0"
+        - "RemoveMalware_User1"
+        - "RemoveMalware_User2"
+        - "RemoveMalware_User3"
+        - "RemoveMalware_User4"
+      value: 0.15
+
+  # 3.4 Op_Server0 被攻陷且 reward 非常差：给 RemoveMalware_Op_Server0 一点额外“急救加分”
+  - name: "Reward-Remove-OpServer-High"
+    condition: "FACT('opserver_compromised') AND FACT('very_bad_recent_reward')"
+    effect:
+      type: "add"
+      actions:
+        - "RemoveMalware_Op_Server0"
+      value: 0.5
+
+  # 3.5 高风险态还在 Sleep：较强惩罚（虽然 mask 已经挡掉大部分）
+  - name: "Penalize-Sleep-In-HighRisk"
+    condition: "FACT('high_risk_state') OR FACT('very_bad_recent_reward')"
+    effect:
+      type: "add"
+      actions:
+        - "Sleep"
+      value: -0.6

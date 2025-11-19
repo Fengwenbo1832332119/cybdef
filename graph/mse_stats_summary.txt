@@ -1,0 +1,7 @@
+num_blue_actions: 226
+num_rows_mse_flat: 456
+num_rows_mce_flat: 862
+num_cases_with_mse: 303
+num_cases_no_mse: 0
+num_cases_with_mce: 303
+num_cases_no_mce: 0

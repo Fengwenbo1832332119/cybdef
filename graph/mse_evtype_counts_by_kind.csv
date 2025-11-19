@@ -1,0 +1,5 @@
+﻿blue_kind,ev_type,count
+Remove,ExploitRemoteService,54
+Remove,PrivilegeEscalate,69
+Restore,ExploitRemoteService,92
+Restore,PrivilegeEscalate,241

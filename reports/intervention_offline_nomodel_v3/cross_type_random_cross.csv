@@ -1,0 +1,17 @@
+﻿mode,type,delta,strategy,file
+MSE,PrivilegeEscalate,1.0,random_cross,cc2_remove_meander
+MSE,ExploitRemoteService,0.0,random_cross,cc2_remove_meander
+MSE,DiscoverNetworkServices,0.0,random_cross,cc2_remove_meander
+MSE,DiscoverRemoteSystems,0.0,random_cross,cc2_remove_meander
+MCE,PrivilegeEscalate,2.8,random_cross,cc2_remove_meander
+MCE,ExploitRemoteService,0.0,random_cross,cc2_remove_meander
+MCE,DiscoverNetworkServices,0.0,random_cross,cc2_remove_meander
+MCE,DiscoverRemoteSystems,0.0,random_cross,cc2_remove_meander
+MSE,PrivilegeEscalate,2.5,random_cross,cc2_remove_bline
+MSE,ExploitRemoteService,0.0,random_cross,cc2_remove_bline
+MSE,DiscoverNetworkServices,0.0,random_cross,cc2_remove_bline
+MSE,DiscoverRemoteSystems,0.0,random_cross,cc2_remove_bline
+MCE,PrivilegeEscalate,2.8,random_cross,cc2_remove_bline
+MCE,ExploitRemoteService,0.0,random_cross,cc2_remove_bline
+MCE,DiscoverNetworkServices,0.0,random_cross,cc2_remove_bline
+MCE,DiscoverRemoteSystems,0.0,random_cross,cc2_remove_bline

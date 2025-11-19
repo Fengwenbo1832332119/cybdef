@@ -1,0 +1,6 @@
+counterfactual_v4 finished.
+do=all
+recency_decay=0.98
+cf_modes=upgrade,downgrade,random_cross,freq_weighted_cross
+time_shifts=-2,-1,1,2
+cf_target=False
