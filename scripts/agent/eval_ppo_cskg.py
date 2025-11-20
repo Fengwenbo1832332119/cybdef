@@ -66,7 +66,7 @@ class ActorCritic(nn.Module):
 
 def to_obs_vector(obs_raw):
     """
-    和 train_ppo_cskg.py 保持一致：
+    和 train_ppo_cskg_old.py 保持一致：
     支持 dict 包装结构（包含 obs_vec / obs / observation / state 等）
     """
     if isinstance(obs_raw, dict):

@@ -11,9 +11,14 @@ PPO + CSKG(KnowledgeBridge) 联合训练脚本
 - 保留 PPO 足够自由度，让策略自己学，而不是被规则“锁死”
 """
 
-import os, sys, json, time, pathlib, random
-from collections import deque
-from typing import Any, Dict
+import os
+import sys
+import json
+import time
+import pathlib
+import random
+import argparse
+from typing import Any, Dict, Tuple
 
 import numpy as np
 import torch
@@ -61,6 +66,33 @@ def to_serializable(obj):
     if isinstance(obj, dict):
         return {k: to_serializable(v) for k, v in obj.items()}
     return obj
+
+
+def load_yaml(path: pathlib.Path) -> Dict[str, Any]:
+    if not path.exists():
+        return {}
+    with open(path, "r", encoding="utf-8") as f:
+        return yaml.safe_load(f) or {}
+
+
+def build_paths(cfg: Dict[str, Any]) -> Dict[str, pathlib.Path]:
+    paths_cfg = cfg.get("paths", {})
+    return {
+        "env": ROOT / paths_cfg.get("env_config", "scripts/configs/env.yaml"),
+        "ppo": ROOT / paths_cfg.get("ppo_config", "scripts/configs/ppo.yaml"),
+        "cskg": ROOT / paths_cfg.get("cskg_config", "scripts/configs/cskg.yaml"),
+        "seed_graph": ROOT / paths_cfg.get("seed_graph", "scripts/configs/seed_graph.json"),
+    }
+
+def dump_run_metadata(out_dir: pathlib.Path, exp_cfg: Dict[str, Any], ppo_cfg: Dict[str, Any]) -> None:
+    """将实验与超参快照写入日志目录，方便复现。"""
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    with open(out_dir / "exp_config_snapshot.json", "w", encoding="utf-8") as f:
+        json.dump(to_serializable(exp_cfg), f, ensure_ascii=False, indent=2)
+
+    with open(out_dir / "ppo_config_snapshot.json", "w", encoding="utf-8") as f:
+        json.dump(to_serializable(ppo_cfg), f, ensure_ascii=False, indent=2)
 
 
 # ===== 简单 Actor-Critic 网络 =====
@@ -131,31 +163,126 @@ def to_obs_vector(obs_raw: Any) -> np.ndarray:
             f"无法从 obs 字典中提取向量，请检查 keys: {list(obs_raw.keys())}"
         )
 
+    # 与早期版本的 to_obs_vector 保持一致：无论输入是 list/np.ndarray/标量都展开为 1D float32
     obs_np = np.array(obs_raw, dtype=np.float32).reshape(-1)
     return obs_np
 
+def select_action(
+    ac: ActorCritic,
+    kb: KnowledgeBridge | None,
+    env: CybORGWrapper,
+    obs_vec: np.ndarray,
+    facts: Dict[str, Any],
+    action_names: list[str],
+    rule_coef: float,
+) -> Tuple[int, float, float, Dict[str, Any]]:
+    """前向、融合先验/掩码并采样动作，返回 action_idx、logp、value、调试信息。"""
+
+    obs_tensor = torch.from_numpy(obs_vec).to(DEVICE).unsqueeze(0)
+    logits, value = ac(obs_tensor)  # [1, act_dim], [1]
+    logits = logits.squeeze(0)  # [act_dim]
+    value = value.squeeze(0)
+
+    # === CSKG: 先用 facts 更新内部状态（可选）===
+    if kb and hasattr(kb, "update_from_facts"):
+        kb.update_from_facts(facts)
+
+    # === 从 KB 获取先验与掩码 ===
+    if kb:
+        prior_np = kb.prior_logits(facts, action_names)
+        if isinstance(prior_np, tuple):
+            prior_np = prior_np[0]
+        prior_np = np.array(prior_np, dtype=np.float32)
+
+        mask_res = kb.query_action_mask(facts, action_names)
+        if isinstance(mask_res, tuple):
+            rule_mask_np = np.array(mask_res[0], dtype=np.float32)
+        else:
+            rule_mask_np = np.array(mask_res, dtype=np.float32)
+    else:
+        prior_np = np.zeros(len(action_names), dtype=np.float32)
+        rule_mask_np = np.ones(len(action_names), dtype=np.float32)
+
+    # 环境自带合法掩码
+    try:
+        legal_mask_np = env._current_legal_mask().astype(np.float32)
+    except Exception:
+        legal_mask_np = np.ones(len(action_names), dtype=np.float32)
+
+    # 融合掩码（环境 × 规则）
+    combined_mask_np = (legal_mask_np * rule_mask_np).astype(np.float32)
+    if combined_mask_np.sum() <= 0:
+        combined_mask_np[0] = 1.0  # 避免死锁
+
+    logits = logits.clone()
+    prior = torch.from_numpy(prior_np).to(DEVICE)
+    logits = logits + (rule_coef * prior if rule_coef != 0.0 else prior)
+
+    combined_mask_t = torch.from_numpy(combined_mask_np).to(DEVICE)
+    logits[combined_mask_t == 0] = -1e9
+
+    dist = Categorical(logits=logits)
+    action = dist.sample()
+    logp = dist.log_prob(action)
+
+    debug_info = {
+        "prior_np": prior_np,
+        "rule_mask_np": rule_mask_np,
+        "legal_mask_np": legal_mask_np,
+        "combined_mask_np": combined_mask_np,
+    }
+
+    return int(action.item()), float(logp.item()), float(value.item()), debug_info
+
 
 # ===== 主训练函数 =====
-def main():
+def main(config_path: str | None = None):
     global DEVICE
 
-    # --- 配置路径 ---
-    ENV_YAML = ROOT / "scripts" / "configs" / "env.yaml"
-    CSKG_YAML = ROOT / "scripts" / "configs" / "cskg.yaml"
-    SEED_GRAPH = ROOT / "scripts" / "configs" / "seed_graph.json"
-    PPO_YAML = ROOT / "scripts" / "configs" / "ppo.yaml"
+    if config_path is None:
+        parser = argparse.ArgumentParser(description="PPO 训练入口")
+        parser.add_argument(
+            "--config",
+            type=str,
+            default=str(ROOT / "scripts" / "configs" / "b1.yaml"),
+            help="实验配置文件（B0/B1/B2）",
+        )
+        args = parser.parse_args()
+        config_path = args.config
 
-    RUN_NAME = f"ppo_cskg_{int(time.time())}"
-    OUT_DIR = ROOT / "scripts" / "runs" / "ppo_cskg" / RUN_NAME
+    exp_cfg = load_yaml(pathlib.Path(config_path))
+    if not exp_cfg:
+        raise FileNotFoundError(f"无法加载配置: {config_path}")
+
+    paths = build_paths(exp_cfg)
+
+    exp_meta = exp_cfg.get("experiment", {})
+    features = exp_cfg.get("features", {})
+    logging_cfg = exp_cfg.get("logging", {})
+
+    run_prefix = logging_cfg.get("run_prefix", "ppo_cskg")
+    run_id = exp_meta.get("id", "exp")
+
+    RUN_NAME = f"{run_prefix.lower()}_{run_id.lower()}_{int(time.time())}"
+    OUT_DIR = ROOT / "scripts" / "runs" / run_prefix / RUN_NAME
+
     os.makedirs(OUT_DIR, exist_ok=True)
 
+    print(f"🔧 运行 ID: {RUN_NAME}")
+    print(
+        "   特性: CSKG={}  RAG_explain={}".format(
+            features.get("enable_cskg", True), features.get("enable_rag_explain", False)
+        )
+    )
+
     # --- 从 ppo.yaml 读取超参 ---
-    if PPO_YAML.exists():
-        with open(PPO_YAML, "r", encoding="utf-8") as f:
+    ppo_yaml = paths["ppo"]
+    if ppo_yaml.exists():
+        with open(ppo_yaml, "r", encoding="utf-8") as f:
             cfg = yaml.safe_load(f) or {}
     else:
         cfg = {}
-        print(f"⚠ 未找到 {PPO_YAML}，将使用代码内默认超参")
+        print(f"⚠ 未找到 {ppo_yaml}，将使用代码内默认超参")
 
     num_updates = int(cfg.get("num_updates", 100))        # 训练轮数（原 total_episodes）
     rollout_steps = int(cfg.get("horizon", 256))          # 每轮采样步数（原 rollout_steps）
@@ -172,7 +299,6 @@ def main():
     entropy_coef = float(cfg.get("entropy_coef", 0.01))
     value_coef = float(cfg.get("value_coef", 0.5))
     rule_coef = float(cfg.get("rule_coef", 0.0))          # 用于缩放 prior logits
-    mask_alpha = float(cfg.get("mask_alpha", 1.0))        # 目前先预留，不强行使用
     max_grad_norm = float(cfg.get("max_grad_norm", 0.5))
 
     device_cfg = str(cfg.get("device", "cuda")).lower()
@@ -183,35 +309,43 @@ def main():
     else:
         DEVICE = torch.device("cpu")
 
-    print(f"📋 PPO 配置来自: {PPO_YAML}")
+    dump_run_metadata(OUT_DIR, exp_cfg, cfg)
+
+    print(f"📋 实验配置: {config_path}")
+    print(f"📋 PPO 配置来自: {ppo_yaml}")
     print(f"   num_updates={num_updates}, horizon={rollout_steps}, "
           f"mini_batch_size={batch_size}, ppo_epochs={ppo_epochs}")
     print(f"   gamma={gamma}, gae_lambda={lam}, clip_range={clip_ratio}")
     print(f"   pi_lr={lr_pi}, vf_lr={lr_vf}, entropy_coef={entropy_coef}, value_coef={value_coef}")
-    print(f"   rule_coef={rule_coef}, mask_alpha={mask_alpha}, max_grad_norm={max_grad_norm}")
+    print(f"   rule_coef={rule_coef}, max_grad_norm={max_grad_norm}")
     print(f"   device={DEVICE}")
 
     # 固定随机种子
-    seed = 42
+    seed = int(exp_meta.get("seed", 42))
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
 
     # --- 初始化环境 ---
-    env = CybORGWrapper(str(ENV_YAML))
+    env = CybORGWrapper(str(paths["env"]))
     obs_dim = env.obs_dim
     act_dim = env.action_dim
 
-    print(f"✅ PPO+CSKG 训练初始化完成")
+    print(f"✅ PPO 训练初始化完成")
     print(f"   obs_dim={obs_dim}, act_dim={act_dim}")
     print(f"   日志目录: {OUT_DIR}")
 
-    # --- 初始化 CSKG ---
-    kb = KnowledgeBridge(
-        seed_graph_path=str(SEED_GRAPH),
-        cskg_rules_path=str(CSKG_YAML),
-        recent_steps=10,
-    )
+    enable_cskg = bool(features.get("enable_cskg", True))
+    enable_rag = bool(features.get("enable_rag_explain", False))
+    kb = None
+    if enable_cskg:
+        kb = KnowledgeBridge(
+            seed_graph_path=str(paths["seed_graph"]),
+            cskg_rules_path=str(paths["cskg"]),
+            recent_steps=10,
+        )
+    elif enable_rag:
+        print("⚠ RAG 解释被启用但 CSKG 关闭，将跳过 KB 相关日志")
 
     # --- 初始化策略网络 ---
     ac = ActorCritic(obs_dim, act_dim).to(DEVICE)
@@ -219,7 +353,9 @@ def main():
 
     # --- 可解释日志：前 N 次 update 详细记录 ---
     explain_log_path = OUT_DIR / "policy_explain_upd1_5.jsonl"
-    explain_log_f = open(explain_log_path, "w", encoding="utf-8")
+    explain_log_f = None
+    if enable_cskg or enable_rag:
+        explain_log_f = open(explain_log_path, "w", encoding="utf-8")
 
     global_step = 0
 
@@ -227,7 +363,7 @@ def main():
     for upd in range(1, num_updates + 1):
         # env.reset() 返回 dict: {"obs_vec", "facts", "raw", ...}
         obs_raw = env.reset()
-        if hasattr(kb, "reset_episode"):
+        if kb and hasattr(kb, "reset_episode"):
             kb.reset_episode()
 
         # 神经网络用的向量观测
@@ -246,77 +382,17 @@ def main():
         ep_reward_env = 0.0
         ep_reward_total = 0.0
 
-        last_reward_env = 0.0  # 如果你在 _extract_facts 里想用 recent_reward，可以从这里喂
 
         # 一次 update 内采样 rollout_steps 步（可能跨 episode，中途 done 就重置）
         steps_collected = 0
         while steps_collected < rollout_steps:
             global_step += 1
 
-            # === 策略网络前向 ===
-            obs_tensor = torch.from_numpy(obs_vec).to(DEVICE).unsqueeze(0)
-            logits, value = ac(obs_tensor)  # [1, act_dim], [1]
-            logits = logits.squeeze(0)  # [act_dim]
-            value = value.squeeze(0)  # scalar
-
             action_names = env.action_space.names
 
-            # === CSKG: 先用 facts 更新内部状态（可选）===
-            if hasattr(kb, "update_from_facts"):
-                kb.update_from_facts(facts)
-
-            # === 从 KB 获取先验与掩码 ===
-            prior_np = kb.prior_logits(facts, action_names)
-            # 有些版本可能返回 (prior, debug_info)
-            if isinstance(prior_np, tuple):
-                prior_np = prior_np[0]
-            prior_np = np.array(prior_np, dtype=np.float32)
-
-            mask_res = kb.query_action_mask(facts, action_names)
-            if isinstance(mask_res, tuple):
-                rule_mask_np = np.array(mask_res[0], dtype=np.float32)
-            else:
-                rule_mask_np = np.array(mask_res, dtype=np.float32)
-
-            # 环境自带合法掩码
-            try:
-                legal_mask_np = env._current_legal_mask().astype(np.float32)
-            except Exception:
-                # 如果没有该接口，就假设全部合法
-                legal_mask_np = np.ones(act_dim, dtype=np.float32)
-
-            if rule_mask_np.shape[0] != act_dim:
-                raise ValueError(f"rule_mask 维度异常: {rule_mask_np.shape[0]} vs act_dim={act_dim}")
-            if prior_np.shape[0] != act_dim:
-                raise ValueError(f"prior 维度异常: {prior_np.shape[0]} vs act_dim={act_dim}")
-            if legal_mask_np.shape[0] != act_dim:
-                raise ValueError(f"legal_mask 维度异常: {legal_mask_np.shape[0]} vs act_dim={act_dim}")
-
-            # 融合掩码（环境 × 规则）
-            combined_mask_np = (legal_mask_np * rule_mask_np).astype(np.float32)
-            if combined_mask_np.sum() <= 0:
-                # 极端情况：全 0，就放开一个 no-op（Sleep=0）
-                combined_mask_np[0] = 1.0
-
-            # ==== logits + prior + mask ====
-            logits = logits.clone()
-            prior = torch.from_numpy(prior_np).to(DEVICE)
-
-            # 融合先验（带 rule_coef）
-            if rule_coef != 0.0:
-                logits = logits + rule_coef * prior
-            else:
-                logits = logits + prior
-
-            # 掩码：combined_mask == 0 的动作视为不可选
-            combined_mask_t = torch.from_numpy(combined_mask_np).to(DEVICE)
-            logits[combined_mask_t == 0] = -1e9
-
-            dist = Categorical(logits=logits)
-            action = dist.sample()
-            logp = dist.log_prob(action)
-
-            action_idx = int(action.item())
+            action_idx, logp, value, debug_info = select_action(
+                ac, kb, env, obs_vec, facts, action_names, rule_coef
+            )
             action_name = action_names[action_idx]
 
             # === 与环境交互 ===
@@ -326,7 +402,7 @@ def main():
             env_reward = float(reward_env)  # 环境原始奖励（真实性能）
 
             # CSKG奖励塑形（基于环境奖励）
-            if hasattr(kb, "step_update"):
+            if kb and hasattr(kb, "step_update"):
                 shaped_reward = kb.step_update(facts, action_name, env_reward)
             else:
                 shaped_reward = env_reward
@@ -347,9 +423,9 @@ def main():
             # ==== 写入 rollout buffer（用 r_total 来训练 PPO） ====
             obs_buf.append(obs_vec.copy())
             act_buf.append(action_idx)
-            logp_buf.append(float(logp.item()))
+            logp_buf.append(logp)
             rew_buf.append(float(r_total))  # PPO用训练信号
-            val_buf.append(float(value.item()))
+            val_buf.append(value)
             done_buf.append(float(done))
 
             # 分别记录两种奖励用于分析
@@ -359,14 +435,12 @@ def main():
             steps_collected += 1
 
             # === 可解释日志：前 5 次 update 详细记录 ===
-            if upd <= 5:
+            if upd <= 5 and (enable_cskg or enable_rag):
+                prior_np = debug_info["prior_np"]
                 top_idx = np.argsort(prior_np)[-3:][::-1]
-                top_prior = [
-                    [action_names[i], float(prior_np[i])]
-                    for i in top_idx
-                ]
+                top_prior = [[action_names[i], float(prior_np[i])] for i in top_idx]
                 try:
-                    explain = kb.explain_decision(facts, action_names)
+                    explain = kb.explain_decision(facts, action_names) if kb else {}
                 except Exception:
                     explain = {}
 
@@ -379,9 +453,9 @@ def main():
                     "reward_env": float(env_reward),  # 记录环境奖励
                     "reward_shaped": float(shaped_reward),  # 记录塑形奖励
                     "reward_total": float(r_total),  # 记录实际训练信号
-                    "legal_mask_sum": float(legal_mask_np.sum()),
-                    "rule_mask_sum": float(rule_mask_np.sum()),
-                    "combined_mask_sum": float(combined_mask_np.sum()),
+                    "legal_mask_sum": float(debug_info["legal_mask_np"].sum()),
+                    "rule_mask_sum": float(debug_info["rule_mask_np"].sum()),
+                    "combined_mask_sum": float(debug_info["combined_mask_np"].sum()),
                     "top_prior": top_prior,
                     "fact": facts,
                     "explain": explain,
@@ -483,8 +557,8 @@ def main():
             )
             print(f" 💾 已保存 checkpoint: {ckpt_path}")
 
-    explain_log_f.close()
-    env.close()
+    if explain_log_f is not None:
+        explain_log_f.close()
     print("✅ 训练结束")
 
 

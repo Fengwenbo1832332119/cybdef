@@ -48,7 +48,7 @@ import yaml
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
-# ===== 和 train_ppo_cskg.py 完全一致的网络结构 =====
+# ===== 和 train_ppo_cskg_old.py 完全一致的网络结构 =====
 class ActorCritic(nn.Module):
     def __init__(self, obs_dim: int, act_dim: int, hidden=128):
         super().__init__()

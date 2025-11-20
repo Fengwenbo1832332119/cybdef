@@ -1,0 +1,18 @@
+# B2: PPO + CSKG + RAG 解释 配置
+experiment:
+  id: "B2"
+  description: "PPO + CSKG + RAG-LLM 解释日志"
+  seed: 42
+
+paths:
+  env_config: "scripts/configs/env.yaml"
+  ppo_config: "scripts/configs/ppo.yaml"
+  cskg_config: "scripts/configs/cskg.yaml"
+  seed_graph: "scripts/configs/seed_graph.json"
+
+features:
+  enable_cskg: true
+  enable_rag_explain: true
+
+logging:
+  run_prefix: "ppo_rag"

@@ -1,0 +1,18 @@
+# B1: PPO + CSKG 配置
+experiment:
+  id: "B1"
+  description: "PPO + CSKG 规则先验"
+  seed: 42
+
+paths:
+  env_config: "scripts/configs/env.yaml"
+  ppo_config: "scripts/configs/ppo.yaml"
+  cskg_config: "scripts/configs/cskg.yaml"
+  seed_graph: "scripts/configs/seed_graph.json"
+
+features:
+  enable_cskg: true
+  enable_rag_explain: false
+
+logging:
+  run_prefix: "ppo_cskg"

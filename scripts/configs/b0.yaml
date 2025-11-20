@@ -1,0 +1,18 @@
+# B0: 纯 PPO 基线配置
+experiment:
+  id: "B0"
+  description: "纯 PPO（无 CSKG / 无 RAG）"
+  seed: 42
+
+paths:
+  env_config: "scripts/configs/env.yaml"
+  ppo_config: "scripts/configs/ppo.yaml"
+  cskg_config: "scripts/configs/cskg.yaml"
+  seed_graph: "scripts/configs/seed_graph.json"
+
+features:
+  enable_cskg: false
+  enable_rag_explain: false
+
+logging:
+  run_prefix: "ppo_plain"
