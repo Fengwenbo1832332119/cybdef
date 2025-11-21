@@ -120,9 +120,11 @@ class GNNStateEncoder(nn.Module):
 
 
 class MultiHeadActorCritic(nn.Module):
-    def __init__(self, obs_dim: int, act_dim: int, hidden: int = 128, num_heads: int = 1) -> None:
+    def __init__(
+        self, obs_dim: int, act_dim: int, hidden: int = 128, num_heads: int = 1, node_dim: int = 32
+    ) -> None:
         super().__init__()
-        self.encoder = GNNStateEncoder(obs_dim, hidden=hidden)
+        self.encoder = GNNStateEncoder(obs_dim, hidden=hidden, node_dim=node_dim)
         self.actor_heads = nn.ModuleList(
             [nn.Linear(hidden, act_dim) for _ in range(max(1, num_heads))]
         )
@@ -212,6 +214,7 @@ def main() -> None:
 
     num_envs = int(cfg.get("num_envs", 2))
     num_heads = int(cfg.get("num_heads", 2))
+    node_dim = int(cfg.get("node_dim", 32))
 
     device_cfg = str(cfg.get("device", "cuda")).lower()
     if device_cfg == "cuda" and torch.cuda.is_available():
@@ -239,15 +242,19 @@ def main() -> None:
         for _ in range(num_envs)
     ]
 
-    model = MultiHeadActorCritic(obs_dim, act_dim, hidden=128, num_heads=num_heads).to(DEVICE)
+    model = MultiHeadActorCritic(
+        obs_dim, act_dim, hidden=128, num_heads=num_heads, node_dim=node_dim
+    ).to(DEVICE)
     optimizer = optim.Adam(model.parameters(), lr=lr)
 
+    # Validation utilities shared with other scripts
     mse_solver = MSEApproximation(default_mode=mse_mode)
     policyspeak = PolicySpeakValidator()
     risk_tracker = RiskTracker(alpha=risk_alpha)
 
     risk_log = (OUT_DIR / "tail_risk.jsonl").open("w", encoding="utf-8")
     ps_log = (OUT_DIR / "policyspeak.jsonl").open("w", encoding="utf-8")
+    mse_log = (OUT_DIR / "mse.jsonl").open("w", encoding="utf-8")
 
     obs_raw_list: List[Dict[str, Any]] = []
     facts_list: List[Dict[str, Any]] = []
@@ -326,6 +333,20 @@ def main() -> None:
                     attention=attn_np,
                 )
                 mse_buf.append(mse_res.mse)
+                mse_log.write(
+                    json.dumps(
+                        {
+                            "step": global_step,
+                            "update": upd,
+                            "env_idx": env_idx,
+                            "mode": mse_res.mode,
+                            "mse": mse_res.mse,
+                            "evidence_ids": mse_res.evidence_ids,
+                        },
+                        ensure_ascii=False,
+                    )
+                    + "\n"
+                )
 
                 justification = ""
                 if isinstance(info, dict):
@@ -480,7 +501,7 @@ def main() -> None:
             f"TailQ={tail_q:.4f}"
         )
 
-        if upd % 20 == 0:
+        if upd % 25 == 0:
             ckpt_path = OUT_DIR / f"model_upd{upd:03d}.pt"
             torch.save(
                 {
@@ -495,6 +516,7 @@ def main() -> None:
 
     risk_log.close()
     ps_log.close()
+    mse_log.close()
     for env in envs:
         env.close()
     print("✅ 训练结束")

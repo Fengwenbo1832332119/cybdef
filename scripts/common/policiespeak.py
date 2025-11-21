@@ -288,9 +288,35 @@ class Z3ConstraintChecker:
 
     def check(self, plan: Dict[str, Any], constraint_set: ConstraintSet) -> Dict[str, Any]:
         if self.z3 is None:
-            msg = "z3 未安装，使用软校验降级"
-            _log(msg)
-            return {"status": "degraded", "issues": [msg], "satisfied": False}
+            # 软校验：在缺少 z3 的环境下仍做轻量规则检查，避免一味降级。
+            issues: List[str] = []
+            for idx, cmd in enumerate(plan.get("playbook", [])):
+                sev = int(cmd.get("args", {}).get("severity", 5))
+                if sev < 0 or sev > 10:
+                    issues.append(f"action#{idx} severity 超界: {sev}")
+
+            if constraint_set.max_actions and len(plan.get("playbook", [])) > constraint_set.max_actions:
+                issues.append(
+                    f"actions({len(plan.get('playbook', []))}) > max_actions({constraint_set.max_actions})"
+                )
+
+            if constraint_set.max_latency_ms is not None:
+                max_lat = max(
+                    (int(cmd.get("args", {}).get("latency_ms", constraint_set.max_latency_ms))
+                     for cmd in plan.get("playbook", [])),
+                    default=0,
+                )
+                if max_lat > constraint_set.max_latency_ms:
+                    issues.append(
+                        f"latency {max_lat}ms exceeds max_latency_ms={constraint_set.max_latency_ms}"
+                    )
+
+            status = "soft-check"
+            msg = "z3 未安装，已执行软校验"
+            if not issues:
+                issues.append("软校验通过")
+            _log(json.dumps({"z3": status, "issues": issues}, ensure_ascii=False))
+            return {"status": status, "issues": issues, "satisfied": len(issues) == 1 and issues[0] == "软校验通过"}
 
         z3 = self.z3
         solver = z3.Solver()
