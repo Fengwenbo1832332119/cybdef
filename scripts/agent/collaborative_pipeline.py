@@ -1,12 +1,14 @@
 # -*- coding: utf-8 -*-
 """协同检索-校验-解释-规划管线。
 
-组件：
-- Retriever/Verifier：检索证据并仅输出带引用的 JSON 事实。
+组件职责：
+- Retriever / Verifier：检索证据并仅输出带引用的 JSON 事实。
 - Explainer：将 MSE 事件转为 PolicySpeak 模板。
 - Planner：编译成 OpenC2/playbook，使用 Z3 校验约束并输出日志。
 
-所有校验日志写入 ``scripts/logs/``，评测结果写入 ``reports/policiespeak_eval.md``。
+落盘约定：
+- 校验日志落在 ``scripts/logs/collaborative_pipeline.jsonl``。
+- 评测指标落在 ``reports/policiespeak_eval.md``。
 """
 
 from __future__ import annotations
@@ -19,7 +21,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 import sys
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, Iterable, List, Optional, Sequence, TypedDict
 from urllib import error as urllib_error, request as urllib_request
 
 _openai_spec = importlib_util.find_spec("openai")
@@ -43,10 +45,19 @@ from scripts.common.policiespeak import (
     compile_to_openc2,
     validate_policiespeak,
 )
+
+from scripts.utils.generate_llm_explanation import generate_episode_summary_llm
+
 LOG_DIR = REPO_ROOT / "scripts" / "logs"
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 REPORT_PATH = REPO_ROOT / "reports" / "policiespeak_eval.md"
 REPORT_PATH.parent.mkdir(parents=True, exist_ok=True)
+
+
+KBEntry = Dict[str, Any]
+MSEEvent = Dict[str, Any]
+Policy = Dict[str, Any]
+PlaybookPlan = Dict[str, Any]
 
 
 class ChatAnywhereLLM:
@@ -413,53 +424,116 @@ class EvaluationReporter:
         path.write_text("\n".join(report), encoding="utf-8")
 
 
-class CollaborativePipeline:
-    """打通 Retriever -> Verifier -> Explainer -> Planner 的协同链路。"""
+class PipelineArtifacts(TypedDict, total=False):
+    """协调链路的结构化输出。"""
 
-    def __init__(self, llm_backends: Optional[Dict[str, Any]] = None) -> None:
-        self.retriever = Retriever()
-        self.verifier = Verifier()
-        self.explainer = Explainer(orchestrator=MultiLLMOrchestrator(backends=llm_backends))
-        self.planner = Planner()
-        self.reporter = EvaluationReporter()
+    facts: List[Dict[str, Any]]
+    policies: List[Policy]
+    plans: List[PlaybookPlan]
+    human_readable: str
+    narrative: str
+    report: str
+
+
+class CollaborativePipeline:
+    """打通 Retriever → Verifier → Explainer → Planner 的协同链路。
+
+    - 允许自定义落盘位置，便于按场景区分日志。
+    - 允许注入自定义 Retriever / Verifier / Explainer / Planner / Reporter，方便扩展。
+    """
+
+    def __init__(
+        self,
+        llm_backends: Optional[Dict[str, Any]] = None,
+        *,
+        retriever: Optional[Retriever] = None,
+        verifier: Optional[Verifier] = None,
+        explainer: Optional[Explainer] = None,
+        planner: Optional[Planner] = None,
+        reporter: Optional[EvaluationReporter] = None,
+        log_path: Path = LOG_DIR / "collaborative_pipeline.jsonl",
+        report_path: Path = REPORT_PATH,
+    ) -> None:
+        self.retriever = retriever or Retriever()
+        self.verifier = verifier or Verifier()
+        self.explainer = explainer or Explainer(orchestrator=MultiLLMOrchestrator(backends=llm_backends))
+        self.planner = planner or Planner()
+        self.reporter = reporter or EvaluationReporter()
+        self.log_path = log_path
+        self.report_path = report_path
 
     def run(
         self,
         query: str,
-        mse_events: Sequence[Dict[str, Any]],
-        knowledge_base: Sequence[Dict[str, Any]],
+        mse_events: Sequence[MSEEvent],
+        knowledge_base: Sequence[KBEntry],
         labels: Optional[Sequence[int]] = None,
         run_id: Optional[str] = None,
         training_refs: Optional[Sequence[str]] = None,
         input_source: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        *,
+        persist: bool = True,
+    ) -> PipelineArtifacts:
         evidences = self.retriever.retrieve(query, knowledge_base)
         facts = self.verifier.verify(query, evidences)
         for idx, fact in enumerate(facts):
             label = labels[idx] if labels and idx < len(labels) else None
             self.reporter.add(fact, label=label, run_id=run_id)
+
         policies = self.explainer.explain(mse_events, evidences, training_refs=training_refs)
         plans = self.planner.plan(policies)
-        self.reporter.write_report(REPORT_PATH)
-        log_path = LOG_DIR / "collaborative_pipeline.jsonl"
-        with log_path.open("a", encoding="utf-8") as w:
-            w.write(json.dumps({
-                "query": query,
-                "facts": facts,
-                "policies": policies,
-                "plans": plans,
-                "run_id": run_id,
-                "training_refs": training_refs,
-                "input_source": input_source,
-            }, ensure_ascii=False) + "\n")
-        return {
-            "facts": facts,
-            "policies": policies,
-            "plans": plans,
-            "human_readable": render_human_summary(plans, source=input_source, training_refs=training_refs),
-            "narrative": render_narrative_from_artifacts(log_path, REPORT_PATH),
-            "report": str(REPORT_PATH),
-        }
+
+        if persist:
+            self._persist_artifacts(
+                query=query,
+                facts=facts,
+                policies=policies,
+                plans=plans,
+                run_id=run_id,
+                training_refs=training_refs,
+                input_source=input_source,
+            )
+
+        return PipelineArtifacts(
+            facts=facts,
+            policies=policies,
+            plans=plans,
+            human_readable=render_human_summary(plans, source=input_source, training_refs=training_refs),
+            narrative=render_narrative_from_artifacts(self.log_path, self.report_path),
+            report=str(self.report_path),
+        )
+
+    def _persist_artifacts(
+        self,
+        *,
+        query: str,
+        facts: List[Dict[str, Any]],
+        policies: List[Policy],
+        plans: List[PlaybookPlan],
+        run_id: Optional[str],
+        training_refs: Optional[Sequence[str]],
+        input_source: Optional[str],
+    ) -> None:
+        """写入 JSONL 与评测报告，便于复盘或调试。"""
+
+        self.reporter.write_report(self.report_path)
+        self.log_path.parent.mkdir(parents=True, exist_ok=True)
+        with self.log_path.open("a", encoding="utf-8") as w:
+            w.write(
+                json.dumps(
+                    {
+                        "query": query,
+                        "facts": facts,
+                        "policies": policies,
+                        "plans": plans,
+                        "run_id": run_id,
+                        "training_refs": training_refs,
+                        "input_source": input_source,
+                    },
+                    ensure_ascii=False,
+                )
+                + "\n"
+            )
 
 
 def render_human_summary(
@@ -663,43 +737,153 @@ def load_live_inputs_from_redteam(
     }
 
 
+def _render_episode_timeline(kb: List[Dict[str, Any]], episode: int) -> str:
+    """把整条 episode 的 KB 按 step 分组，渲染成一个人类友好的时间线 Markdown。"""
+    lines: List[str] = []
+    lines.append(f"# Episode {episode} 时间线概览")
+    lines.append("")
+
+    # 按 step 分组
+    by_step: Dict[int, List[Dict[str, Any]]] = {}
+    for ev in kb:
+        if ev.get("episode") != episode:
+            continue
+        st = int(ev.get("step", -1))
+        if st < 0:
+            continue
+        by_step.setdefault(st, []).append(ev)
+
+    for step in sorted(by_step.keys()):
+        events = by_step[step]
+        lines.append(f"## Step {step}")
+        # 每一步按 kind 粗略分下类
+        facts = [e for e in events if e.get("kind") == "fact"]
+        rules = [e for e in events if e.get("kind") == "rule"]
+        recs  = [e for e in events if e.get("kind") == "recommendation"]
+        acts  = [e for e in events if e.get("kind") == "blue_action"]
+
+        if facts:
+            lines.append("- **环境事实 (facts):**")
+            for f in facts:
+                lines.append(f"  - {f.get('text')}")
+        if rules:
+            lines.append("- **规则触发 (rules):**")
+            for r in rules:
+                lines.append(f"  - {r.get('text')}")
+        if recs:
+            lines.append("- **推荐动作 (recommended_actions):**")
+            for rc in recs:
+                lines.append(f"  - {rc.get('text')}")
+        if acts:
+            lines.append("- **蓝方实际动作 (blue_action):**")
+            for a in acts:
+                lines.append(f"  - {a.get('text')}")
+
+        lines.append("")
+
+    return "\n".join(lines)
+
+
 def demo() -> None:
-    default_kb = [
-        {"id": "ev1", "text": "Service X leaked credentials", "source": "log", "citation": "log://123", "score": 0.9},
-        {"id": "ev2", "text": "SSH open on 10.0.0.5", "source": "scan", "citation": "scan://22", "score": 0.7},
-    ]
-    default_mse = [
-        {"type": "Contain", "action": "deny", "targets": ["10.0.0.5"], "severity": 6, "summary": "隔离受感染主机"},
+    """
+    使用 episode20 的完整 KB，做一次“整条 episode 时间线”的解释：
+
+    - knowledge_base 直接用 reports/kb_episode20.json
+    - MSE 事件是 EpisodeSummary（总结视角）
+    - query = 'episode 20'
+    - 输出：
+      - FACTS：被检索到的 KB 条目
+      - POLICIES：一条 EpisodeSummary 的 PolicySpeak JSON
+      - PLANS：对应的 playbook + z3 结果
+      - HUMAN READABLE：策略官摘要
+      - TIMELINE_MD：按 step 列的时间线（落盘为 reports/episode20_timeline.md）
+    """
+
+    episode = 20
+
+    # 1) 载入整条 episode 的 KB
+    kb_path = REPO_ROOT / "reports" / "kb_episode20.json"
+    if not kb_path.exists():
+        raise FileNotFoundError(f"KB 文件不存在: {kb_path}")
+    knowledge_base: List[Dict[str, Any]] = json.loads(kb_path.read_text(encoding="utf-8"))
+
+    # 2) 定义一个 EpisodeSummary 的 MSE 事件
+    mse_events = [
+        {
+            "type": "EpisodeSummary",
+            "context": "episode_summary",
+            "actor": "blue_agent",
+            "episode": episode,
+            "step": None,
+            "action": "EpisodeSummary",
+            "targets": [],
+            "severity": 5,
+            "summary": f"Summarize the defensive behavior of Blue in episode {episode}.",
+            "parameters": {},
+        }
     ]
 
-    live_inputs = load_live_inputs_from_redteam(
-        default_query="credentials",
-        default_kb=default_kb,
-        default_mse=default_mse,
-    )
-    kb = live_inputs["kb"]
-    mse = live_inputs["mse"]
-    query = live_inputs["query"]
+    # 3) query：用“episode 20”，KB 里大部分文本都含这个子串
+    query = f"episode {episode}"
 
-    chatanywhere_client = ChatAnywhereLLM.from_env()
+    # 4) backend：暂时只用 rule_based（不调外部 LLM 生成 PolicySpeak）
     llm_backends = {
-        "gpt51": gpt51_backend,
-        "evidence_officer_deepseek": make_chatanywhere_backend(chatanywhere_client, "deepseek-chat", "证据官"),
-        "explainer_gemini": make_chatanywhere_backend(chatanywhere_client, "gemini-pro", "解释官"),
-        "planner_gpt": make_chatanywhere_backend(chatanywhere_client, "gpt-4o-mini", "策略官"),
         "rule_based": lambda mse_evt, ev: build_policiespeak_template(mse_evt, ev),
     }
-
     pipeline = CollaborativePipeline(llm_backends=llm_backends)
+
+    # 5) 跑一遍协同链路
     result = pipeline.run(
-        query,
-        mse,
-        kb,
-        labels=[1],
-        training_refs=["finetune_run_v1", "kb_snapshot_2024-06"],
-        input_source=live_inputs.get("source"),
+        query=query,
+        mse_events=mse_events,
+        knowledge_base=knowledge_base,
+        labels=None,
+        training_refs=[f"kb_episode{episode}"],
+        input_source=f"kb_episode{episode}.json",
+        persist=True,
     )
-    print(json.dumps(result, indent=2, ensure_ascii=False))
+
+    # 6) 打印关键输出
+    print("\n>>> FACTS (Verifier 输出的 JSON 事实):")
+    print(json.dumps(result.get("facts", []), indent=2, ensure_ascii=False))
+
+    print("\n\n>>> POLICIES (PolicySpeak JSON):")
+    print(json.dumps(result.get("policies", []), indent=2, ensure_ascii=False))
+
+    print("\n\n>>> PLANS (playbook + z3 校验):")
+    print(json.dumps(result.get("plans", []), indent=2, ensure_ascii=False))
+
+    print("\n\n>>> HUMAN READABLE SUMMARY:")
+    print(result.get("human_readable", ""))
+
+    print("\n\n>>> NARRATIVE:")
+    print(result.get("narrative", ""))
+
+    # 7) 额外生成一份“按 step 的时间线 Markdown”
+    timeline_md = _render_episode_timeline(knowledge_base, episode=episode)
+    timeline_path = REPO_ROOT / "reports" / f"episode{episode}_timeline.md"
+    timeline_path.write_text(timeline_md, encoding="utf-8")
+
+    print("\n\n>>> TIMELINE_MD 写入：")
+    print(f"  - {timeline_path}")
+
+    # 8) 调用 LLM 生成自然语言解释（如果配置了 OPENAI_API_KEY）
+    try:
+        metrics_md = ""
+        if REPORT_PATH.exists():
+            metrics_md = REPORT_PATH.read_text(encoding="utf-8")
+
+        # 利用我们在 utils 里写的函数
+        llm_out_path = generate_episode_summary_llm(episode=episode)
+        print("\n>>> LLM 自然语言解释已写入：")
+        print(f"  - {llm_out_path}")
+    except Exception as exc:
+        print("\n[WARN] 调用 LLM 生成自然语言解释失败：", exc)
+
+    print("\n[INFO] Written:")
+    print(f"  - {REPORT_PATH.parent / 'policiespeak_last.json'}")
+    print(f"  - {REPORT_PATH}")
+
 
 
 if __name__ == "__main__":

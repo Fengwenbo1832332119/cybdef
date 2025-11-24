@@ -1,8 +1,8 @@
 {
   "meta": {
-    "version": "s2-v1",
+    "version": "s2-v2",
     "scenario": "Scenario2",
-    "description": "Three-subnet network for Scenario2: user hosts, enterprise servers, operational hosts/server"
+    "description": "CAGE 2 three-subnet network with detailed OS, services, decoys, attack paths and reward schema"
   },
 
   "subnets": [
@@ -31,144 +31,285 @@
       "id": "Defender",
       "subnet": "subnet_enterprise",
       "role": "defender",
-      "criticality": 0
+      "os": "linux",
+      "criticality": 0,
+      "obs_index": 0
     },
     {
-      "id": "Enterprise0",
+      "id": "Ent0",
       "subnet": "subnet_enterprise",
       "role": "enterprise_server",
-      "criticality": 3
+      "os": "linux",
+      "criticality": 3,
+      "obs_index": 1
     },
     {
-      "id": "Enterprise1",
+      "id": "Ent1",
       "subnet": "subnet_enterprise",
       "role": "enterprise_server",
-      "criticality": 3
+      "os": "windows",
+      "criticality": 3,
+      "obs_index": 2
     },
     {
-      "id": "Enterprise2",
+      "id": "Ent2",
       "subnet": "subnet_enterprise",
       "role": "enterprise_server",
-      "criticality": 3
+      "os": "windows",
+      "criticality": 3,
+      "obs_index": 3
     },
 
     {
-      "id": "Op_Host0",
+      "id": "OpHost0",
       "subnet": "subnet_operational",
       "role": "operational_host",
-      "criticality": 2
+      "os": "linux",
+      "criticality": 2,
+      "obs_index": 4
     },
     {
-      "id": "Op_Host1",
+      "id": "OpHost1",
       "subnet": "subnet_operational",
       "role": "operational_host",
-      "criticality": 2
+      "os": "linux",
+      "criticality": 2,
+      "obs_index": 5
     },
     {
-      "id": "Op_Host2",
+      "id": "OpHost2",
       "subnet": "subnet_operational",
       "role": "operational_host",
-      "criticality": 2
+      "os": "linux",
+      "criticality": 2,
+      "obs_index": 6
     },
     {
-      "id": "Op_Server0",
+      "id": "OpServer",
       "subnet": "subnet_operational",
       "role": "operational_server",
-      "criticality": 4
+      "os": "linux",
+      "criticality": 4,
+      "obs_index": 7
     },
 
     {
       "id": "User0",
       "subnet": "subnet_user",
-      "role": "user_host",
-      "criticality": 1
+      "role": "red_foothold",
+      "os": "windows",
+      "criticality": 1,
+      "obs_index": 8
     },
     {
       "id": "User1",
       "subnet": "subnet_user",
       "role": "user_host",
-      "criticality": 1
+      "os": "windows",
+      "criticality": 1,
+      "obs_index": 9
     },
     {
       "id": "User2",
       "subnet": "subnet_user",
       "role": "user_host",
-      "criticality": 1
+      "os": "windows",
+      "criticality": 1,
+      "obs_index": 10
     },
     {
       "id": "User3",
       "subnet": "subnet_user",
       "role": "user_host",
-      "criticality": 1
+      "os": "linux",
+      "criticality": 1,
+      "obs_index": 11
     },
     {
       "id": "User4",
       "subnet": "subnet_user",
       "role": "user_host",
-      "criticality": 1
+      "os": "linux",
+      "criticality": 1,
+      "obs_index": 12
+    }
+  ],
+
+  "firewalls": [
+    {
+      "id": "FW_User_Ent",
+      "between": ["subnet_user", "subnet_enterprise"],
+      "role": "firewall_shared"
+    },
+    {
+      "id": "FW_Ent_Op",
+      "between": ["subnet_enterprise", "subnet_operational"],
+      "role": "firewall_shared"
     }
   ],
 
   "services": [
-    {
-      "id": "svc_ssh",
-      "name": "ssh",
-      "port": 22,
-      "techniques": ["T1046"]
-    },
-    {
-      "id": "svc_http",
-      "name": "http",
-      "port": 80,
-      "techniques": ["T1018"]
-    }
+    { "id": "svc_ssh",     "name": "ssh",     "port": 22,   "protocol": "tcp" },
+    { "id": "svc_http",    "name": "http",    "port": 80,   "protocol": "tcp" },
+    { "id": "svc_https",   "name": "https",   "port": 443,  "protocol": "tcp" },
+    { "id": "svc_smtp",    "name": "smtp",    "port": 25,   "protocol": "tcp" },
+    { "id": "svc_ftp",     "name": "ftp",     "port": 21,   "protocol": "tcp" },
+    { "id": "svc_rdp",     "name": "rdp",     "port": 3389, "protocol": "tcp" },
+    { "id": "svc_rdp_alt", "name": "rdp_alt", "port": 3390, "protocol": "tcp" },
+    { "id": "svc_smb",     "name": "smb",     "port": 445,  "protocol": "tcp" },
+    { "id": "svc_netbios", "name": "netbios", "port": 139,  "protocol": "tcp" },
+    { "id": "svc_epmap",   "name": "msrpc_epmap", "port": 135, "protocol": "tcp" }
   ],
 
-  "techniques": [
-    {
-      "id": "T1046",
-      "name": "Network Service Scanning",
-      "phase": "Discovery"
-    },
-    {
-      "id": "T1018",
-      "name": "Remote System Discovery",
-      "phase": "Discovery"
-    }
+  "processes": [
+    { "id": "proc_User1_sshd",            "host": "User1", "service": "svc_ssh",     "user": "SSHD_SERVER", "remove_protected": false },
+    { "id": "proc_User1_femitter",        "host": "User1", "service": "svc_ftp",     "user": "SYSTEM",      "remove_protected": true  },
+
+    { "id": "proc_User2_smss",            "host": "User2", "service": "svc_smb",     "user": "SYSTEM",      "remove_protected": true  },
+    { "id": "proc_User2_svchost_netbios", "host": "User2", "service": "svc_netbios", "user": "SYSTEM",      "remove_protected": true  },
+    { "id": "proc_User2_svchost_epmap",   "host": "User2", "service": "svc_epmap",   "user": "NETWORK",     "remove_protected": false },
+    { "id": "proc_User2_rdp",             "host": "User2", "service": "svc_rdp",     "user": "SYSTEM",      "remove_protected": true  },
+
+    { "id": "proc_User3_mysql",           "host": "User3", "service": "svc_rdp",     "user": "ROOT",        "remove_protected": true  },
+    { "id": "proc_User3_apache",          "host": "User3", "service": "svc_http",    "user": "WWW-DATA",    "remove_protected": false },
+    { "id": "proc_User3_smtp",            "host": "User3", "service": "svc_smtp",    "user": "ROOT",        "remove_protected": true  },
+
+    { "id": "proc_User4_sshd",            "host": "User4", "service": "svc_ssh",     "user": "ROOT",        "remove_protected": true  },
+    { "id": "proc_User4_mysql",           "host": "User4", "service": "svc_rdp_alt", "user": "ROOT",        "remove_protected": true  },
+    { "id": "proc_User4_apache",          "host": "User4", "service": "svc_http",    "user": "WWW-DATA",    "remove_protected": false },
+    { "id": "proc_User4_smtp",            "host": "User4", "service": "svc_smtp",    "user": "ROOT",        "remove_protected": true  },
+
+    { "id": "proc_Ent0_sshd",             "host": "Ent0",  "service": "svc_ssh",     "user": "ROOT",        "remove_protected": true  },
+
+    { "id": "proc_Ent1_sshd",             "host": "Ent1",  "service": "svc_ssh",     "user": "SSHD_SERVER", "remove_protected": false },
+    { "id": "proc_Ent1_svchost_epmap",    "host": "Ent1",  "service": "svc_epmap",   "user": "SYSTEM",      "remove_protected": true  },
+    { "id": "proc_Ent1_rdp",              "host": "Ent1",  "service": "svc_rdp",     "user": "SYSTEM",      "remove_protected": true  },
+    { "id": "proc_Ent1_smb",              "host": "Ent1",  "service": "svc_smb",     "user": "SYSTEM",      "remove_protected": true  },
+    { "id": "proc_Ent1_netbios",          "host": "Ent1",  "service": "svc_netbios", "user": "NETWORK",     "remove_protected": false },
+    { "id": "proc_Ent1_tomcat",           "host": "Ent1",  "service": "svc_http",    "user": "SYSTEM",      "remove_protected": true  },
+
+    { "id": "proc_Ent2_sshd",             "host": "Ent2",  "service": "svc_ssh",     "user": "SSHD_SERVER", "remove_protected": false },
+    { "id": "proc_Ent2_svchost_epmap",    "host": "Ent2",  "service": "svc_epmap",   "user": "SYSTEM",      "remove_protected": true  },
+    { "id": "proc_Ent2_rdp",              "host": "Ent2",  "service": "svc_rdp",     "user": "SYSTEM",      "remove_protected": true  },
+    { "id": "proc_Ent2_smb",              "host": "Ent2",  "service": "svc_smb",     "user": "SYSTEM",      "remove_protected": true  },
+    { "id": "proc_Ent2_netbios",          "host": "Ent2",  "service": "svc_netbios", "user": "NETWORK",     "remove_protected": false },
+    { "id": "proc_Ent2_tomcat",           "host": "Ent2",  "service": "svc_http",    "user": "SYSTEM",      "remove_protected": true  },
+
+    { "id": "proc_OpServer_sshd",         "host": "OpServer", "service": "svc_ssh", "user": "ROOT", "remove_protected": true },
+    { "id": "proc_OpHost0_sshd",          "host": "OpHost0",  "service": "svc_ssh", "user": "ROOT", "remove_protected": true },
+    { "id": "proc_OpHost1_sshd",          "host": "OpHost1",  "service": "svc_ssh", "user": "ROOT", "remove_protected": true },
+    { "id": "proc_OpHost2_sshd",          "host": "OpHost2",  "service": "svc_ssh", "user": "ROOT", "remove_protected": true },
+
+    { "id": "proc_Defender_sshd",         "host": "Defender", "service": "svc_ssh", "user": "ROOT", "remove_protected": true }
+  ],
+
+  "exploits": [
+    { "id": "exp_ssh_bruteforce",     "name": "SSHBruteForce",    "technique": "T1110.003" },
+    { "id": "exp_ftp_dir_traversal",  "name": "FTPDirTraversal",  "technique": "T1105"     },
+    { "id": "exp_eternalblue",        "name": "EternalBlue",      "technique": "T1068"     },
+    { "id": "exp_bluekeep",           "name": "BlueKeep",         "technique": "T1068"     },
+    { "id": "exp_http_rfi",           "name": "HTTPRFI",          "technique": "T1190"     },
+    { "id": "exp_https_rfi",          "name": "HTTPSRFI",         "technique": "T1190"     },
+    { "id": "exp_sql_injection",      "name": "SQLInjection",     "technique": "T1190"     },
+    { "id": "exp_haraka_rce",         "name": "HarakaRCE",        "technique": "T1190"     }
+  ],
+
+  "decoys": [
+    { "id": "decoyApache",    "process": "apache2",    "mapped_exploit": "exp_http_rfi"      },
+    { "id": "decoyTomcat",    "process": "tomcat8.exe","mapped_exploit": "exp_https_rfi"     },
+    { "id": "decoySmss",      "process": "smss.exe",   "mapped_exploit": "exp_eternalblue"   },
+    { "id": "decoySvchost",   "process": "svchost.exe","mapped_exploit": "exp_bluekeep"      },
+    { "id": "decoySSHD",      "process": "sshd",       "mapped_exploit": "exp_ssh_bruteforce"},
+    { "id": "decoyHarakaSMTP","process": "smtp",       "mapped_exploit": "exp_haraka_rce"    },
+    { "id": "decoyFemitter",  "process": "femitter.exe","mapped_exploit": "exp_ftp_dir_traversal" },
+    { "id": "decoyVsftpd",    "process": "vsftpd",     "mapped_exploit": "exp_ftp_dir_traversal" }
   ],
 
   "edges": [
+    { "source": "subnet_user",       "target": "subnet_enterprise",  "relation": "separated_by", "via": "FW_User_Ent" },
+    { "source": "subnet_enterprise", "target": "subnet_operational", "relation": "separated_by", "via": "FW_Ent_Op"   },
 
+    { "source": "User1", "target": "Ent1",     "relation": "pivot_after_exploit" },
+    { "source": "User2", "target": "Ent1",     "relation": "pivot_after_exploit" },
+    { "source": "User3", "target": "Ent0",     "relation": "pivot_after_exploit" },
+    { "source": "User4", "target": "Ent0",     "relation": "pivot_after_exploit" },
+    { "source": "Ent0",  "target": "Ent2",     "relation": "pivot_after_exploit" },
+    { "source": "Ent1",  "target": "Ent2",     "relation": "pivot_after_exploit" },
+    { "source": "Ent2",  "target": "OpServer","relation": "pivot_after_exploit" },
 
-    { "source": "User0", "target": "Enterprise0", "relation": "reachable" },
-    { "source": "User1", "target": "Enterprise0", "relation": "reachable" },
-    { "source": "User2", "target": "Enterprise1", "relation": "reachable" },
-    { "source": "User3", "target": "Enterprise1", "relation": "reachable" },
-    { "source": "User4", "target": "Enterprise2", "relation": "reachable" },
+    { "source": "OpHost0", "target": "OpServer", "relation": "local" },
+    { "source": "OpHost1", "target": "OpServer", "relation": "local" },
+    { "source": "OpHost2", "target": "OpServer", "relation": "local" },
 
-    { "source": "Enterprise0", "target": "Op_Server0", "relation": "reachable" },
-    { "source": "Enterprise1", "target": "Op_Server0", "relation": "reachable" },
-    { "source": "Enterprise2", "target": "Op_Server0", "relation": "reachable" },
+    { "source": "svc_ssh",   "target": "Ent0",     "relation": "runs_on" },
+    { "source": "svc_ssh",   "target": "Ent1",     "relation": "runs_on" },
+    { "source": "svc_ssh",   "target": "Ent2",     "relation": "runs_on" },
+    { "source": "svc_ssh",   "target": "OpServer", "relation": "runs_on" },
+    { "source": "svc_ssh",   "target": "OpHost0",  "relation": "runs_on" },
+    { "source": "svc_ssh",   "target": "OpHost1",  "relation": "runs_on" },
+    { "source": "svc_ssh",   "target": "OpHost2",  "relation": "runs_on" },
+    { "source": "svc_ssh",   "target": "User1",    "relation": "runs_on" },
+    { "source": "svc_ssh",   "target": "User4",    "relation": "runs_on" },
 
-    { "source": "Op_Host0", "target": "Op_Server0", "relation": "local" },
-    { "source": "Op_Host1", "target": "Op_Server0", "relation": "local" },
-    { "source": "Op_Host2", "target": "Op_Server0", "relation": "local" },
+    { "source": "svc_http",  "target": "User3",    "relation": "runs_on" },
+    { "source": "svc_http",  "target": "User4",    "relation": "runs_on" },
+    { "source": "svc_http",  "target": "Ent1",     "relation": "runs_on" },
+    { "source": "svc_http",  "target": "Ent2",     "relation": "runs_on" },
 
+    { "source": "svc_https", "target": "User3",    "relation": "runs_on" },
+    { "source": "svc_https", "target": "User4",    "relation": "runs_on" },
+    { "source": "svc_https", "target": "Ent1",     "relation": "runs_on" },
 
-    { "source": "svc_ssh",  "target": "Enterprise0", "relation": "runs_on" },
-    { "source": "svc_ssh",  "target": "Enterprise1", "relation": "runs_on" },
-    { "source": "svc_http", "target": "Enterprise1", "relation": "runs_on" },
-    { "source": "svc_http", "target": "Op_Server0",  "relation": "runs_on" },
+    { "source": "svc_smb",   "target": "User2",    "relation": "runs_on" },
+    { "source": "svc_smb",   "target": "Ent1",     "relation": "runs_on" },
+    { "source": "svc_smb",   "target": "Ent2",     "relation": "runs_on" },
 
+    { "source": "svc_netbios", "target": "User2",  "relation": "runs_on" },
+    { "source": "svc_netbios", "target": "Ent1",   "relation": "runs_on" },
+    { "source": "svc_netbios", "target": "Ent2",   "relation": "runs_on" },
 
-    { "source": "T1046", "target": "svc_ssh",  "relation": "exploits" },
-    { "source": "T1018", "target": "svc_http", "relation": "exploits" }
+    { "source": "svc_epmap",  "target": "User2",   "relation": "runs_on" },
+    { "source": "svc_epmap",  "target": "Ent1",    "relation": "runs_on" },
+    { "source": "svc_epmap",  "target": "Ent2",    "relation": "runs_on" },
+
+    { "source": "svc_smtp",   "target": "User3",   "relation": "runs_on" },
+    { "source": "svc_smtp",   "target": "User4",   "relation": "runs_on" },
+
+    { "source": "svc_ftp",    "target": "User0",   "relation": "runs_on" },
+    { "source": "svc_ftp",    "target": "User1",   "relation": "runs_on" },
+
+    { "source": "svc_rdp",    "target": "User2",   "relation": "runs_on" },
+    { "source": "svc_rdp",    "target": "User3",   "relation": "runs_on" },
+    { "source": "svc_rdp",    "target": "Ent1",    "relation": "runs_on" },
+    { "source": "svc_rdp",    "target": "Ent2",    "relation": "runs_on" },
+
+    { "source": "svc_rdp_alt","target": "User4",   "relation": "runs_on" },
+
+    { "source": "exp_ssh_bruteforce",    "target": "svc_ssh",     "relation": "exploits" },
+    { "source": "exp_ftp_dir_traversal", "target": "svc_ftp",     "relation": "exploits" },
+    { "source": "exp_eternalblue",       "target": "svc_netbios", "relation": "exploits" },
+    { "source": "exp_bluekeep",          "target": "svc_rdp",     "relation": "exploits" },
+    { "source": "exp_http_rfi",          "target": "svc_http",    "relation": "exploits" },
+    { "source": "exp_https_rfi",         "target": "svc_https",   "relation": "exploits" },
+    { "source": "exp_sql_injection",     "target": "svc_http",    "relation": "exploits" },
+    { "source": "exp_sql_injection",     "target": "svc_rdp_alt", "relation": "exploits" },
+    { "source": "exp_haraka_rce",        "target": "svc_smtp",    "relation": "exploits" },
+
+    { "source": "decoyApache",    "target": "svc_http",   "relation": "decoy_for" },
+    { "source": "decoyTomcat",    "target": "svc_https",  "relation": "decoy_for" },
+    { "source": "decoySmss",      "target": "svc_smb",    "relation": "decoy_for" },
+    { "source": "decoySvchost",   "target": "svc_rdp",    "relation": "decoy_for" },
+    { "source": "decoySSHD",      "target": "svc_ssh",    "relation": "decoy_for" },
+    { "source": "decoyHarakaSMTP","target": "svc_smtp",   "relation": "decoy_for" },
+    { "source": "decoyFemitter",  "target": "svc_ftp",    "relation": "decoy_for" },
+    { "source": "decoyVsftpd",    "target": "svc_ftp",    "relation": "decoy_for" }
   ],
 
   "reward_schema": {
     "user_compromise_per_turn": -0.1,
     "enterprise_compromise_per_turn": -1.0,
     "operational_compromise_per_turn": -1.0,
-    "operational_impact_per_turn": -10.0
+    "operational_impact_per_turn": -10.0,
+    "restore_penalty": -1.0
   }
 }
