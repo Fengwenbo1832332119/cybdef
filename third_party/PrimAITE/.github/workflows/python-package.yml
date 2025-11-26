@@ -1,0 +1,57 @@
+name: Python package
+
+on:
+  push:
+    branches:
+      - main
+      - dev
+      - 'release/**'
+  pull_request:
+    branches:
+      - main
+      - dev
+      - 'release/**'
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.9", "3.10", "3.11"]
+
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install python dev
+        run: |
+          sudo apt update
+          sudo add-apt-repository ppa:deadsnakes/ppa -y
+          sudo apt install python${{ matrix.python-version}}-dev -y
+
+      - name: Install Build Dependencies
+        run: |
+          python -m pip install --upgrade pip==23.0.1
+          pip install wheel==0.38.4 --upgrade
+          pip install setuptools==66 --upgrade
+          pip install build
+
+      - name: Build PrimAITE
+        run: |
+          python -m build
+
+      - name: Install PrimAITE
+        run: |
+          PRIMAITE_WHEEL=$(ls ./dist/primaite*.whl)
+          python -m pip install $PRIMAITE_WHEEL[dev,rl]
+
+      - name: Perform PrimAITE Setup
+        run: |
+          primaite setup
+
+      - name: Run tests
+        run: |
+          pytest tests/
