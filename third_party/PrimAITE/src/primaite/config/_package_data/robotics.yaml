@@ -1,0 +1,479 @@
+metadata:
+  version: 3.1
+
+io_settings:
+  save_agent_actions: true
+  save_step_metadata: false
+  save_pcap_logs: false
+  save_sys_logs: false
+  sys_log_level: INFO
+
+game:
+  max_episode_length: 128
+  ports:
+    - HTTP
+    - SSH
+  protocols:
+    - ICMP
+    - TCP
+    - UDP
+  thresholds:
+    nmne:
+      high: 15
+      medium: 8
+      low: 0
+
+ROBOT_IP_LIST: &ROBOT_IP_LIST
+  - 10.2.0.10
+  - 10.2.0.20
+  - 10.2.10.10
+  - 10.2.20.10
+  - 10.2.20.20
+  - 10.2.20.30
+  - 10.2.20.40
+  - 10.2.0.1
+  - 10.2.10.1
+  - 10.2.20.1
+
+ROBOT_WILDCARDS: &ROBOT_WILDCARDS
+  - 0.0.0.0
+  - 0.0.0.255
+
+ROBOT_PORT_LIST: &ROBOT_PORT_LIST
+  - HTTP
+  - SSH
+
+ROBOT_PROTOCOL_LIST: &ROBOT_PROTOCOL_LIST
+  - ICMP
+  - TCP
+  - UDP
+
+GREEN_PROB_40: &GREEN_PROB_40
+  action_probabilities:
+    0: 0.6
+    1: 0.4
+
+ACTION_PENALTY_WEIGHT: &ACTION_PENALTY_WEIGHT -0.05
+
+agents:
+  - ref: OPERATOR_HMI
+    team: GREEN
+    type: probabilistic-agent
+    observation_space: {}
+    agent_settings:
+      <<: *GREEN_PROB_40
+    action_space:
+      action_map:
+        0:
+          action: do-nothing
+          options: {}
+        1:
+          action: node-application-execute
+          options:
+            node_name: eng_station
+            application_name: web-browser
+    reward_function:
+      reward_components:
+        - type: action-penalty
+          weight: -0.01
+          options:
+            per_action_penalty: 0.1
+
+  - ref: HISTORIAN_CLIENT
+    team: GREEN
+    type: periodic-agent
+    observation_space: {}
+    agent_settings:
+      possible_start_nodes:
+        - robot_historian
+      target_application: database-client
+      start_step: 5
+      start_variance: 1
+      max_executions: 1000
+      frequency: 5
+      variance: 1
+    reward_function:
+      reward_components:
+        - type: green-admin-database-unreachable-penalty
+          weight: 0.5
+          options:
+            node_hostname: robot_historian
+
+  - ref: SAFETY_ENGINEER
+    team: GREEN
+    type: probabilistic-agent
+    observation_space: {}
+    agent_settings:
+      <<: *GREEN_PROB_40
+    action_space:
+      action_map:
+        0:
+          action: do-nothing
+          options: {}
+        1:
+          action: node-application-execute
+          options:
+            node_name: office_pc
+            application_name: web-browser
+    reward_function:
+      reward_components:
+        - type: webpage-unavailable-penalty
+          weight: 0.3
+          options:
+            node_hostname: office_pc
+
+  - ref: robotics_guard
+    team: BLUE
+    type: proxy-agent
+    observation_space:
+      type: custom
+      options:
+        components:
+          - type: nodes
+            label: NODES
+            options:
+              hosts:
+                - hostname: eng_station
+                - hostname: office_pc
+                - hostname: robot_historian
+                - hostname: robot_controller
+                - hostname: robot_plc
+                - hostname: safety_sensor
+                - hostname: vision_pc
+              routers:
+                - hostname: edge_router
+              num_services: 2
+              num_applications: 2
+              num_folders: 1
+              num_files: 1
+              num_nics: 2
+              include_num_access: false
+              include_nmne: true
+              monitored_traffic:
+                icmp:
+                  - NONE
+                tcp:
+                  - HTTP
+                  - SSH
+                udp:
+                  - NONE
+              ip_list: *ROBOT_IP_LIST
+              wildcard_list: *ROBOT_WILDCARDS
+              port_list: *ROBOT_PORT_LIST
+              protocol_list: *ROBOT_PROTOCOL_LIST
+              num_ports: 2
+              num_rules: 12
+          - type: links
+            label: LINKS
+            options:
+              link_references:
+                - edge_router:eth-1<->switch_it:eth-8
+                - edge_router:eth-2<->switch_dmz:eth-8
+                - edge_router:eth-3<->switch_cell:eth-8
+                - switch_it:eth-1<->eng_station:eth-1
+                - switch_it:eth-2<->office_pc:eth-1
+                - switch_dmz:eth-1<->robot_historian:eth-1
+                - switch_cell:eth-1<->robot_controller:eth-1
+                - switch_cell:eth-2<->robot_plc:eth-1
+                - switch_cell:eth-3<->safety_sensor:eth-1
+                - switch_cell:eth-4<->vision_pc:eth-1
+    action_space:
+      action_map:
+        0:
+          action: do-nothing
+          options: {}
+
+        1:
+          action: node-network-service-recon
+          options:
+            source_node: eng_station
+            target_ip_address:
+              - 10.2.20.0/24
+            target_port: 22
+            target_protocol: tcp
+            show: true
+
+        2:
+          action: router-acl-add-rule
+          options:
+            target_router: edge_router
+            permission: DENY
+            protocol_name: tcp
+            src_ip: 10.2.0.10
+            src_wildcard: 0.0.0.0
+            src_port: ALL
+            dst_ip: 10.2.20.10
+            dst_wildcard: 0.0.0.0
+            dst_port: SSH
+            position: 5
+
+        3:
+          action: router-acl-remove-rule
+          options:
+            target_router: edge_router
+            position: 5
+
+        4:
+          action: node-shutdown
+          options:
+            node_name: robot_controller
+
+        5:
+          action: node-startup
+          options:
+            node_name: robot_controller
+
+        6:
+          action: node-file-scan
+          options:
+            node_name: robot_controller
+            folder_name: program
+            file_name: robot_program.bin
+
+        7:
+          action: node-application-scan
+          options:
+            node_name: robot_controller
+            application_name: database-client
+
+    reward_function:
+      reward_components:
+        - type: database-file-integrity
+          weight: 0.5
+          options:
+            node_hostname: robot_controller
+            folder_name: program
+            file_name: robot_program.bin
+
+        - type: shared-reward
+          weight: 0.25
+          options:
+            agent_name: HISTORIAN_CLIENT
+
+        - type: shared-reward
+          weight: 0.25
+          options:
+            agent_name: OPERATOR_HMI
+
+        - type: action-penalty
+          weight: *ACTION_PENALTY_WEIGHT
+          options:
+            per_action_penalty: 0.05
+
+    agent_settings:
+      flatten_obs: true
+      action_masking: true
+
+  - ref: robotics_attacker
+    team: RED
+    type: periodic-agent
+    agent_settings:
+      possible_start_nodes:
+        - vision_pc
+      target_application: data-manipulation-bot
+      start_step: 12
+      frequency: 18
+      variance: 4
+    action_space:
+      action_map:
+        0:
+          action: do-nothing
+          options: {}
+        1:
+          action: node-application-execute
+          options:
+            node_name: vision_pc
+            application_name: data-manipulation-bot
+        2:
+          action: node-network-service-recon
+          options:
+            source_node: vision_pc
+            target_ip_address:
+              - 10.2.20.10
+              - 10.2.20.20
+            target_protocol: tcp
+            target_port: 22
+            show: true
+
+simulation:
+  network:
+    nmne_config:
+      capture_nmne: true
+      nmne_capture_keywords:
+        - command
+        - write
+        - move
+    nodes:
+      - hostname: edge_router
+        type: router
+        num_ports: 4
+        ports:
+          1:
+            ip_address: 10.2.0.1
+            subnet_mask: 255.255.255.0
+          2:
+            ip_address: 10.2.10.1
+            subnet_mask: 255.255.255.0
+          3:
+            ip_address: 10.2.20.1
+            subnet_mask: 255.255.255.0
+        acl:
+          1:
+            action: PERMIT
+            protocol: ICMP
+          2:
+            action: PERMIT
+            src_port: HTTP
+            dst_port: HTTP
+          3:
+            action: PERMIT
+            src_port: SSH
+            dst_port: SSH
+
+      - hostname: switch_it
+        type: switch
+        num_ports: 8
+
+      - hostname: switch_dmz
+        type: switch
+        num_ports: 8
+
+      - hostname: switch_cell
+        type: switch
+        num_ports: 8
+
+      - hostname: eng_station
+        type: computer
+        ip_address: 10.2.0.10
+        subnet_mask: 255.255.255.0
+        default_gateway: 10.2.0.1
+        dns_server: 10.2.10.10
+        applications:
+          - type: web-browser
+            options:
+              target_url: http://robot_historian
+        services:
+          - type: dns-client
+
+      - hostname: office_pc
+        type: computer
+        ip_address: 10.2.0.20
+        subnet_mask: 255.255.255.0
+        default_gateway: 10.2.0.1
+        dns_server: 10.2.10.10
+        applications:
+          - type: web-browser
+            options:
+              target_url: http://robot_historian
+        services:
+          - type: dns-client
+
+      - hostname: robot_historian
+        type: server
+        ip_address: 10.2.10.10
+        subnet_mask: 255.255.255.0
+        default_gateway: 10.2.10.1
+        services:
+          - type: database-service
+            options:
+              backup_server_ip: 10.2.20.10
+        applications:
+          - type: database-client
+            options:
+              db_server_ip: 10.2.20.10
+
+      - hostname: robot_controller
+        type: server
+        ip_address: 10.2.20.10
+        subnet_mask: 255.255.255.0
+        default_gateway: 10.2.20.1
+        services:
+          - type: ftp-server
+        applications:
+          - type: database-client
+            options:
+              db_server_ip: 10.2.10.10
+        folders:
+          - folder_name: program
+            files:
+              - file_name: robot_program.bin
+
+      - hostname: robot_plc
+        type: computer
+        ip_address: 10.2.20.20
+        subnet_mask: 255.255.255.0
+        default_gateway: 10.2.20.1
+        services:
+          - type: dns-client
+        applications:
+          - type: data-manipulation-bot
+            options:
+              port_scan_p_of_success: 0.5
+              data_manipulation_p_of_success: 0.5
+              payload: "MOVE_JOINT"
+              server_ip: 10.2.20.10
+
+      - hostname: safety_sensor
+        type: computer
+        ip_address: 10.2.20.30
+        subnet_mask: 255.255.255.0
+        default_gateway: 10.2.20.1
+        services:
+          - type: dns-client
+
+      - hostname: vision_pc
+        type: computer
+        ip_address: 10.2.20.40
+        subnet_mask: 255.255.255.0
+        default_gateway: 10.2.20.1
+        services:
+          - type: dns-client
+        applications:
+          - type: data-manipulation-bot
+            options:
+              port_scan_p_of_success: 0.6
+              data_manipulation_p_of_success: 0.6
+              payload: "MOVE_FRAME"
+              server_ip: 10.2.20.10
+
+    links:
+      - endpoint_a_hostname: edge_router
+        endpoint_a_port: 1
+        endpoint_b_hostname: switch_it
+        endpoint_b_port: 8
+      - endpoint_a_hostname: edge_router
+        endpoint_a_port: 2
+        endpoint_b_hostname: switch_dmz
+        endpoint_b_port: 8
+      - endpoint_a_hostname: edge_router
+        endpoint_a_port: 3
+        endpoint_b_hostname: switch_cell
+        endpoint_b_port: 8
+      - endpoint_a_hostname: switch_it
+        endpoint_a_port: 1
+        endpoint_b_hostname: eng_station
+        endpoint_b_port: 1
+      - endpoint_a_hostname: switch_it
+        endpoint_a_port: 2
+        endpoint_b_hostname: office_pc
+        endpoint_b_port: 1
+      - endpoint_a_hostname: switch_dmz
+        endpoint_a_port: 1
+        endpoint_b_hostname: robot_historian
+        endpoint_b_port: 1
+      - endpoint_a_hostname: switch_cell
+        endpoint_a_port: 1
+        endpoint_b_hostname: robot_controller
+        endpoint_b_port: 1
+      - endpoint_a_hostname: switch_cell
+        endpoint_a_port: 2
+        endpoint_b_hostname: robot_plc
+        endpoint_b_port: 1
+      - endpoint_a_hostname: switch_cell
+        endpoint_a_port: 3
+        endpoint_b_hostname: safety_sensor
+        endpoint_b_port: 1
+      - endpoint_a_hostname: switch_cell
+        endpoint_a_port: 4
+        endpoint_b_hostname: vision_pc
+        endpoint_b_port: 1

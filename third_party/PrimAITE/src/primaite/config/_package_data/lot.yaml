@@ -1,0 +1,471 @@
+metadata:
+  version: 3.1
+
+io_settings:
+  save_agent_actions: true
+  save_step_metadata: false
+  save_pcap_logs: false
+  save_sys_logs: false
+  sys_log_level: INFO
+
+game:
+  max_episode_length: 128
+  ports:
+    - HTTP
+    - HTTPS
+  protocols:
+    - ICMP
+    - TCP
+    - UDP
+  thresholds:
+    nmne:
+      high: 15
+      medium: 8
+      low: 0
+
+# ===== Shared anchors (ASCII only) =====
+
+LOT_IP_LIST: &LOT_IP_LIST
+  - 10.1.0.10     # mgmt_laptop
+  - 10.1.10.10    # cloud_gateway
+  - 10.1.10.20    # cloud_monitor
+  - 10.1.20.10    # iot_hub
+  - 10.1.20.20    # sensor_cam
+  - 10.1.20.30    # sensor_plc
+  - 10.1.0.1      # edge_router it iface
+  - 10.1.10.1     # edge_router cloud iface
+  - 10.1.20.1     # edge_router iot iface
+
+LOT_WILDCARDS: &LOT_WILDCARDS
+  - 0.0.0.0
+  - 0.0.0.255
+
+LOT_PORT_LIST: &LOT_PORT_LIST
+  - HTTP
+  - HTTPS
+
+LOT_PROTOCOL_LIST: &LOT_PROTOCOL_LIST
+  - ICMP
+  - TCP
+  - UDP
+
+GREEN_PROB_40: &GREEN_PROB_40
+  action_probabilities:
+    0: 0.6
+    1: 0.4
+
+ACTION_PENALTY_WEIGHT: &ACTION_PENALTY_WEIGHT -0.05
+
+agents:
+  # =======================
+  #    GREEN PoL AGENTS
+  # =======================
+
+  - ref: MOBILE_USER
+    team: GREEN
+    type: probabilistic-agent
+    observation_space: {}
+    agent_settings:
+      <<: *GREEN_PROB_40
+    action_space:
+      action_map:
+        0:
+          action: do-nothing
+          options: {}
+        1:
+          action: node-application-execute
+          options:
+            node_name: mgmt_laptop
+            application_name: web-browser
+    reward_function:
+      reward_components:
+        - type: action-penalty
+          weight: -0.01
+          options:
+            per_action_penalty: 0.1
+
+  - ref: IOT_ENGINEER
+    team: GREEN
+    type: periodic-agent
+    observation_space: {}
+    agent_settings:
+      possible_start_nodes:
+        - iot_hub
+      target_application: database-client
+      start_step: 5
+      start_variance: 1
+      max_executions: 1000
+      frequency: 5
+      variance: 1
+    reward_function:
+      reward_components:
+        - type: green-admin-database-unreachable-penalty
+          weight: 0.5
+          options:
+            node_hostname: iot_hub
+
+  - ref: OPS_VIEWER
+    team: GREEN
+    type: probabilistic-agent
+    observation_space: {}
+    agent_settings:
+      <<: *GREEN_PROB_40
+    action_space:
+      action_map:
+        0:
+          action: do-nothing
+          options: {}
+        1:
+          action: node-application-execute
+          options:
+            node_name: cloud_monitor
+            application_name: web-browser
+    reward_function:
+      reward_components:
+        - type: webpage-unavailable-penalty
+          weight: 0.3
+          options:
+            node_hostname: cloud_monitor
+
+  # =======================
+  #        BLUE AGENT
+  # =======================
+
+  - ref: lot_monitor
+    team: BLUE
+    type: proxy-agent
+    observation_space:
+      type: custom
+      options:
+        components:
+          - type: nodes
+            label: NODES
+            options:
+              hosts:
+                - hostname: mgmt_laptop
+                - hostname: cloud_gateway
+                - hostname: cloud_monitor
+                - hostname: iot_hub
+                - hostname: sensor_cam
+                - hostname: sensor_plc
+              routers:
+                - hostname: edge_router
+              num_services: 2
+              num_applications: 2
+              num_folders: 1
+              num_files: 1
+              num_nics: 2
+              include_num_access: false
+              include_nmne: true
+              monitored_traffic:
+                icmp:
+                  - NONE
+                tcp:
+                  - HTTP
+                  - HTTPS
+                udp:
+                  - NONE
+              ip_list: *LOT_IP_LIST
+              wildcard_list: *LOT_WILDCARDS
+              port_list: *LOT_PORT_LIST
+              protocol_list: *LOT_PROTOCOL_LIST
+              num_ports: 2
+              num_rules: 12
+          - type: links
+            label: LINKS
+            options:
+              link_references:
+                - edge_router:eth-1<->switch_it:eth-8
+                - edge_router:eth-2<->switch_cloud:eth-8
+                - edge_router:eth-3<->switch_iot:eth-8
+                - switch_it:eth-1<->mgmt_laptop:eth-1
+                - switch_cloud:eth-1<->cloud_gateway:eth-1
+                - switch_cloud:eth-2<->cloud_monitor:eth-1
+                - switch_iot:eth-1<->iot_hub:eth-1
+                - switch_iot:eth-2<->sensor_cam:eth-1
+                - switch_iot:eth-3<->sensor_plc:eth-1
+    action_space:
+      action_map:
+        0:
+          action: do-nothing
+          options: {}
+
+        1:
+          action: node-network-service-recon
+          options:
+            source_node: cloud_monitor
+            target_ip_address:
+              - 10.1.20.0/24
+            target_port: 8080
+            target_protocol: tcp
+            show: true
+
+        2:
+          action: router-acl-add-rule
+          options:
+            target_router: edge_router
+            permission: DENY
+            protocol_name: tcp
+            src_ip: 10.1.20.10      # iot_hub
+            src_wildcard: 0.0.0.255
+            src_port: ALL
+            dst_ip: 10.1.10.10      # cloud_gateway
+            dst_wildcard: 0.0.0.0
+            dst_port: ALL
+            position: 5
+
+        3:
+          action: router-acl-remove-rule
+          options:
+            target_router: edge_router
+            position: 5
+
+        4:
+          action: node-shutdown
+          options:
+            node_name: iot_hub
+
+        5:
+          action: node-startup
+          options:
+            node_name: iot_hub
+
+        6:
+          action: node-file-scan
+          options:
+            node_name: iot_hub
+            folder_name: telemetry
+            file_name: telemetry.db
+
+        7:
+          action: node-application-scan
+          options:
+            node_name: iot_hub
+            application_name: database-client
+
+    reward_function:
+      reward_components:
+        - type: database-file-integrity
+          weight: 0.5
+          options:
+            node_hostname: iot_hub
+            folder_name: telemetry
+            file_name: telemetry.db
+
+
+        - type: shared-reward
+          weight: 0.25
+          options:
+            agent_name: IOT_ENGINEER
+
+        - type: shared-reward
+          weight: 0.25
+          options:
+            agent_name: OPS_VIEWER
+
+        - type: action-penalty
+          weight: *ACTION_PENALTY_WEIGHT
+          options:
+            per_action_penalty: 0.05
+
+    agent_settings:
+      flatten_obs: true
+      action_masking: true
+
+  # =======================
+  #        RED AGENT
+  # =======================
+
+  - ref: iot_attacker
+    team: RED
+    type: periodic-agent
+    agent_settings:
+      possible_start_nodes:
+        - sensor_cam
+      target_application: data-manipulation-bot
+      start_step: 12
+      frequency: 18
+      variance: 4
+    action_space:
+      action_map:
+        0:
+          action: do-nothing
+          options: {}
+        1:
+          action: node-application-execute
+          options:
+            node_name: sensor_cam
+            application_name: data-manipulation-bot
+        2:
+          action: node-network-service-recon
+          options:
+            source_node: sensor_cam
+            target_ip_address:
+              - 10.1.20.10
+            target_protocol: tcp
+            target_port: 8080
+            show: true
+
+simulation:
+  network:
+    nmne_config:
+      capture_nmne: true
+      nmne_capture_keywords:
+        - command
+        - write
+    nodes:
+      - hostname: edge_router
+        type: router
+        num_ports: 4
+        ports:
+          1:
+            ip_address: 10.1.0.1
+            subnet_mask: 255.255.255.0
+          2:
+            ip_address: 10.1.10.1
+            subnet_mask: 255.255.255.0
+          3:
+            ip_address: 10.1.20.1
+            subnet_mask: 255.255.255.0
+        acl:
+          1:
+            action: PERMIT
+            protocol: ICMP
+          2:
+            action: PERMIT
+            src_port: HTTP
+            dst_port: HTTP
+          3:
+            action: PERMIT
+            src_port: HTTPS
+            dst_port: HTTPS
+
+      - hostname: switch_it
+        type: switch
+        num_ports: 8
+
+      - hostname: switch_cloud
+        type: switch
+        num_ports: 8
+
+      - hostname: switch_iot
+        type: switch
+        num_ports: 8
+
+      - hostname: mgmt_laptop
+        type: computer
+        ip_address: 10.1.0.10
+        subnet_mask: 255.255.255.0
+        default_gateway: 10.1.0.1
+        dns_server: 10.1.10.10
+        applications:
+          - type: web-browser
+            options:
+              target_url: https://cloud.gateway
+        services:
+          - type: dns-client
+
+      - hostname: cloud_gateway
+        type: server
+        ip_address: 10.1.10.10
+        subnet_mask: 255.255.255.0
+        default_gateway: 10.1.10.1
+        services:
+          - type: web-server
+          - type: ftp-server
+
+      - hostname: cloud_monitor
+        type: server
+        ip_address: 10.1.10.20
+        subnet_mask: 255.255.255.0
+        default_gateway: 10.1.10.1
+        services:
+          - type: dns-client
+        applications:
+          - type: web-browser
+            options:
+              target_url: https://cloud.gateway
+
+      - hostname: iot_hub
+        type: server
+        ip_address: 10.1.20.10
+        subnet_mask: 255.255.255.0
+        default_gateway: 10.1.20.1
+        services:
+          - type: ftp-client
+        applications:
+          - type: database-client
+            options:
+              db_server_ip: 10.1.20.10
+        folders:
+          - folder_name: telemetry
+            files:
+              - file_name: telemetry.db
+
+      - hostname: sensor_cam
+        type: computer
+        ip_address: 10.1.20.20
+        subnet_mask: 255.255.255.0
+        default_gateway: 10.1.20.1
+        services:
+          - type: dns-client
+        applications:
+          - type: data-manipulation-bot
+            options:
+              port_scan_p_of_success: 0.6
+              data_manipulation_p_of_success: 0.6
+              payload: "WRITE_FRAME"
+              server_ip: 10.1.20.10
+
+      - hostname: sensor_plc
+        type: computer
+        ip_address: 10.1.20.30
+        subnet_mask: 255.255.255.0
+        default_gateway: 10.1.20.1
+        services:
+          - type: dns-client
+        applications:
+          - type: data-manipulation-bot
+            options:
+              port_scan_p_of_success: 0.5
+              data_manipulation_p_of_success: 0.5
+              payload: "WRITE_TAG"
+              server_ip: 10.1.20.10
+
+    links:
+      - endpoint_a_hostname: edge_router
+        endpoint_a_port: 1
+        endpoint_b_hostname: switch_it
+        endpoint_b_port: 8
+      - endpoint_a_hostname: edge_router
+        endpoint_a_port: 2
+        endpoint_b_hostname: switch_cloud
+        endpoint_b_port: 8
+      - endpoint_a_hostname: edge_router
+        endpoint_a_port: 3
+        endpoint_b_hostname: switch_iot
+        endpoint_b_port: 8
+      - endpoint_a_hostname: switch_it
+        endpoint_a_port: 1
+        endpoint_b_hostname: mgmt_laptop
+        endpoint_b_port: 1
+      - endpoint_a_hostname: switch_cloud
+        endpoint_a_port: 1
+        endpoint_b_hostname: cloud_gateway
+        endpoint_b_port: 1
+      - endpoint_a_hostname: switch_cloud
+        endpoint_a_port: 2
+        endpoint_b_hostname: cloud_monitor
+        endpoint_b_port: 1
+      - endpoint_a_hostname: switch_iot
+        endpoint_a_port: 1
+        endpoint_b_hostname: iot_hub
+        endpoint_b_port: 1
+      - endpoint_a_hostname: switch_iot
+        endpoint_a_port: 2
+        endpoint_b_hostname: sensor_cam
+        endpoint_b_port: 1
+      - endpoint_a_hostname: switch_iot
+        endpoint_a_port: 3
+        endpoint_b_hostname: sensor_plc
+        endpoint_b_port: 1
