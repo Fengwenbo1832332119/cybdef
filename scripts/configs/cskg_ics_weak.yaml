@@ -1,0 +1,64 @@
+# scripts/configs/cskg_ics_weak.yaml
+meta:
+  version: "0.2-ics-weak"
+  description: "ICS weak-CSKG using real action names from ics.yaml."
+
+facts:
+  - recent_reward
+  - bad_recent_reward
+  - very_bad_recent_reward
+  - suspicious_activity
+
+actions:
+  observe:
+    - "OBSERVE"
+  diagnose:
+    - "DIAGNOSE"
+  mitigate:
+    - "MITIGATE"
+  risky_ops:
+    - "SHUTDOWN"
+    - "RESTART"
+    - "RECONFIGURE"
+  alert:
+    - "ALERT"
+  hold:
+    - "HOLD"
+  any:
+    - ".*"
+
+mask_rules: []
+
+prior_rules:
+  - name: "ICS-Prior-Diagnose-When-Bad"
+    condition: "FACT('bad_recent_reward')"
+    effect:
+      actions:
+        - "DIAGNOSE"
+      value: 0.4
+
+  - name: "ICS-Prior-Observe-When-Suspicious"
+    condition: "FACT('suspicious_activity')"
+    effect:
+      actions:
+        - "OBSERVE"
+      value: 0.2
+
+reward_rules:
+  - name: "ICS-Penalty-Risky-When-Bad"
+    condition: "FACT('bad_recent_reward')"
+    effect:
+      type: "add"
+      actions:
+        - "SHUTDOWN"
+        - "RESTART"
+        - "RECONFIGURE"
+      value: -0.05
+
+  - name: "ICS-Reward-Mitigate-When-VeryBad"
+    condition: "FACT('very_bad_recent_reward')"
+    effect:
+      type: "add"
+      actions:
+        - "MITIGATE"
+      value: 0.1

@@ -1,18 +1,21 @@
 # C:\cybdef\scripts\cyborg_cc2_logger_plus.py
-import sys, re, json, argparse, inspect
+import sys, re, json, argparse, inspect, os, random
 from pathlib import Path
 from datetime import datetime, timezone
 from collections import Counter
 
-# ========= 让 third_party/CybORG 成为可 import 的包 =========
+import numpy as np
+
+# ========= 让 third_party/CybORG_plus_plus/Debugged_CybORG 成为可 import 的包 =========
 PROJ_ROOT   = Path(__file__).resolve().parents[1]               # C:\cybdef
-CYBORG_ROOT = PROJ_ROOT / "third_party" / "CybORG"
-if str(CYBORG_ROOT) not in sys.path:
-    sys.path.insert(0, str(CYBORG_ROOT))
+CYBORG_ROOT = (PROJ_ROOT / "third_party" / "CybORG_plus_plus" / "Debugged_CybORG").resolve()
+CYBORG_STOCK = (PROJ_ROOT / "third_party" / "CybORG").resolve()
+
+# 明确使用 Debugged_CybORG，并移除原版路径，避免两个 CybORG 副本导致的导入歧义。
+sys.path[:] = [p for p in sys.path if Path(p).resolve() != CYBORG_STOCK]
 
 # ========= CybORG & Agents & ScenarioGenerator =========
 from CybORG import CybORG
-from CybORG.Simulator.Scenarios.FileReaderScenarioGenerator import FileReaderScenarioGenerator
 from CybORG.Agents.SimpleAgents.Meander import RedMeanderAgent
 from CybORG.Agents.SimpleAgents.B_line import B_lineAgent
 from CybORG.Agents.SimpleAgents.BlueReactAgent import BlueReactRemoveAgent, BlueReactRestoreAgent
@@ -34,9 +37,14 @@ def get_scenario2_yaml() -> Path:
 # ========= 构建环境（显式使用 FileReaderScenarioGenerator）=========
 def make_env(red="meander", seed=123):
     scenario_yaml = str(get_scenario2_yaml())
-    sg = FileReaderScenarioGenerator(scenario_yaml)
     red_agent = RedMeanderAgent() if red == "meander" else B_lineAgent()
-    cyborg = CybORG(sg, 'sim', agents={'Red': red_agent}, seed=seed)
+    random.seed(seed)
+    np.random.seed(seed)
+    cyborg = CybORG(
+        scenario_file=scenario_yaml,
+        environment='sim',
+        agents={'Red': red_agent},
+    )
     return cyborg
 
 # ========= 动作解析 & 时间 =========

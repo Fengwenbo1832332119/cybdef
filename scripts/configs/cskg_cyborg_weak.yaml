@@ -1,0 +1,216 @@
+# scripts/configs/cskg_cyborg_weak.yaml
+# -------------------------------------------------------
+# Weak CSKG / KnowledgeBridge 规则配置（v0.6-weak-cyborg）
+#
+# 设计目标：
+# 1. 不做 hard mask：只做 soft prior + reward shaping
+# 2. 所有 value 比原来完整版 cskg.yaml 约减半或更弱
+# 3. 行为模式保持一致，作为“轻 nudging” 版本
+# -------------------------------------------------------
+
+meta:
+  version: "0.6-weak-cyborg"
+  description: "CybORG Blue weak CSKG（无硬 mask，轻量先验 + 轻奖励塑形）"
+
+facts:
+  - suspicious_activity
+  - host_compromised
+  - enterprise_compromised
+  - opserver_compromised
+  - ophost_compromised
+  - user_compromised
+  - only_user_compromised
+  - critical_host_breached
+  - critical_host
+  - recent_reward
+  - bad_recent_reward
+  - very_bad_recent_reward
+  - high_risk_state
+  - host_discovered
+
+actions:
+  investigate:
+    - "InvestigateHost"
+
+  remove:
+    - "RemoveMalware"
+    - "RemoveMalware_Enterprise0"
+    - "RemoveMalware_Enterprise1"
+    - "RemoveMalware_Enterprise2"
+    - "RemoveMalware_Op_Host0"
+    - "RemoveMalware_Op_Host1"
+    - "RemoveMalware_Op_Host2"
+    - "RemoveMalware_Op_Server0"
+    - "RemoveMalware_User1"
+    - "RemoveMalware_User2"
+    - "RemoveMalware_User3"
+    - "RemoveMalware_User4"
+
+  restore:
+    - "RestoreService"
+    - "RestoreService_Enterprise0"
+    - "RestoreService_Enterprise1"
+    - "RestoreService_Enterprise2"
+    - "RestoreService_Op_Host0"
+    - "RestoreService_Op_Host1"
+    - "RestoreService_Op_Host2"
+    - "RestoreService_Op_Server0"
+    - "RestoreService_User1"
+    - "RestoreService_User2"
+    - "RestoreService_User3"
+    - "RestoreService_User4"
+
+  decoys:
+    - "DecoyApache"
+    - "DecoyFemitter"
+    - "DecoyHarakaSMPT"
+    - "DecoySmss"
+    - "DecoySSHD"
+    - "DecoySvchost"
+    - "DecoyTomcat"
+    - "DecoyVsftpd"
+
+  sleep:
+    - "Sleep"
+
+
+# =======================================================
+# 1) Action Mask Rules（weak 版：完全关闭）
+# =======================================================
+mask_rules: []
+
+
+# =======================================================
+# 2) Prior Rules (弱先验：数值比原版小很多)
+# =======================================================
+prior_rules:
+
+  # 仅有可疑活动但未攻陷 → 轻微偏向 Investigate
+  - name: "Prior-Investigate-Under-Suspicion-Weak"
+    condition: "FACT('suspicious_activity') AND NOT FACT('host_compromised')"
+    effect:
+      actions:
+        - "InvestigateHost"
+      value: 0.3          # 原来 0.6 → 减半
+
+  # 有可疑行为 → Decoy 有一点存在感（比原来更弱）
+  - name: "Prior-Decoy-Under-Suspicion-Weak"
+    condition: "FACT('suspicious_activity')"
+    effect:
+      actions:
+        - "DecoyApache"
+        - "DecoyFemitter"
+        - "DecoyHarakaSMPT"
+        - "DecoySmss"
+        - "DecoySSHD"
+        - "DecoySvchost"
+        - "DecoyTomcat"
+        - "DecoyVsftpd"
+      value: 0.06         # 原来 0.12 → 减半
+
+  # Enterprise 被攻陷 → Remove Enterprise*（弱一点）
+  - name: "Prior-Remove-Enterprise-Weak"
+    condition: "FACT('enterprise_compromised')"
+    effect:
+      actions:
+        - "RemoveMalware_Enterprise0"
+        - "RemoveMalware_Enterprise1"
+        - "RemoveMalware_Enterprise2"
+      value: 0.35         # 原来 0.7 → 减半
+
+  # Op_Server0 被攻陷 → 强 remove，但比原来弱
+  - name: "Prior-Remove-OpServer-Weak"
+    condition: "FACT('opserver_compromised')"
+    effect:
+      actions:
+        - "RemoveMalware_Op_Server0"
+      value: 0.6          # 原来 1.2 → 减半
+
+  # only_user_compromised → 清 User1–4，不动核心资产（弱一点）
+  - name: "Prior-Remove-User-OnlyUser-Weak"
+    condition: "FACT('only_user_compromised')"
+    effect:
+      actions:
+        - "RemoveMalware_User1"
+        - "RemoveMalware_User2"
+        - "RemoveMalware_User3"
+        - "RemoveMalware_User4"
+      value: 0.3          # 原来 0.6 → 减半
+
+  - name: "Deprioritize-CoreRemove-OnlyUser-Weak"
+    condition: "FACT('only_user_compromised')"
+    effect:
+      actions:
+        - "RemoveMalware_Enterprise0"
+        - "RemoveMalware_Enterprise1"
+        - "RemoveMalware_Enterprise2"
+        - "RemoveMalware_Op_Server0"
+      value: -0.3         # 原来 -0.6 → 减半
+
+
+# =======================================================
+# 3) Reward Shaping Rules（弱奖励塑形）
+# =======================================================
+reward_rules:
+
+  # 安静时 Decoy 轻微罚（比原来更小）
+  - name: "Penalty-Decoy-Quiet-Weak"
+    condition: "NOT FACT('suspicious_activity') AND NOT FACT('host_compromised')"
+    effect:
+      type: "add"
+      actions:
+        - "DecoyApache"
+        - "DecoyFemitter"
+        - "DecoyHarakaSMPT"
+        - "DecoySmss"
+        - "DecoySSHD"
+        - "DecoySvchost"
+        - "DecoyTomcat"
+        - "DecoyVsftpd"
+      value: -0.015       # 原来 -0.03 → 减半
+
+  # 安静时 Restore 轻微罚
+  - name: "Penalty-Restore-Quiet-Weak"
+    condition: "NOT FACT('suspicious_activity') AND NOT FACT('host_compromised')"
+    effect:
+      type: "add"
+      actions:
+        - "RestoreService"
+        - "RestoreService_Enterprise0"
+        - "RestoreService_Enterprise1"
+        - "RestoreService_Enterprise2"
+        - "RestoreService_Op_Server0"
+      value: -0.04        # 原来 -0.08 → 减半
+
+  # 有攻陷 + 负面 reward → 鼓励 Remove（弱一点）
+  - name: "Reward-Remove-When-BadReward-Weak"
+    condition: "FACT('host_compromised') AND FACT('bad_recent_reward')"
+    effect:
+      type: "add"
+      actions:
+        - "RemoveMalware_Enterprise0"
+        - "RemoveMalware_Enterprise1"
+        - "RemoveMalware_Enterprise2"
+        - "RemoveMalware_Op_Host0"
+        - "RemoveMalware_Op_Host1"
+        - "RemoveMalware_Op_Host2"
+        - "RemoveMalware_Op_Server0"
+      value: 0.08         # 原来 0.15 左右 → 减半
+
+  # Op_Server0 被攻陷 + reward 很差 → 鼓励 Remove（弱一点）
+  - name: "Reward-Remove-OpServer-Severe-Weak"
+    condition: "FACT('opserver_compromised') AND FACT('very_bad_recent_reward')"
+    effect:
+      type: "add"
+      actions:
+        - "RemoveMalware_Op_Server0"
+      value: 0.2          # 原来 0.45 → 明显减小
+
+  # 高风险下 Sleep 轻罚（比原来小很多）
+  - name: "Penalty-Sleep-HighRisk-Weak"
+    condition: "FACT('high_risk_state') OR FACT('very_bad_recent_reward')"
+    effect:
+      type: "add"
+      actions:
+        - "Sleep"
+      value: -0.2         # 原来 -0.4 → 减半

@@ -23,6 +23,12 @@ from pathlib import Path
 import sys
 from typing import Any, Dict, Iterable, List, Optional, Sequence, TypedDict
 from urllib import error as urllib_error, request as urllib_request
+from scripts.utils.generate_llm_explanation import (
+    generate_episode_all_views,
+    build_mse_for_episode,
+    generate_mse_explanation_llm,
+    generate_counterfactual_llm,
+)
 
 _openai_spec = importlib_util.find_spec("openai")
 if _openai_spec is not None:
@@ -858,6 +864,16 @@ def demo() -> None:
 
     print("\n\n>>> NARRATIVE:")
     print(result.get("narrative", ""))
+
+    # 1) 三视角 Episode Summary
+    generate_episode_all_views(episode=episode)
+
+    # 2) MSE 结构 + 因果解释
+    build_mse_for_episode(episode=episode)
+    generate_mse_explanation_llm(episode=episode)
+
+    # 3) 针对某个关键 Step 做反事实解释（这里先举例 Step 20，可以改成你觉得关键的 step）
+    generate_counterfactual_llm(episode=episode, step=20)
 
     # 7) 额外生成一份“按 step 的时间线 Markdown”
     timeline_md = _render_episode_timeline(knowledge_base, episode=episode)

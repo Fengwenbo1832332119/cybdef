@@ -1,6 +1,8 @@
 import os
 import random
+import sys
 import time
+import importlib
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Any, Callable
 
@@ -8,27 +10,78 @@ import numpy as np
 import yaml
 import json
 
-from CybORG import CybORG
-from CybORG.Simulator.Scenarios import FileReaderScenarioGenerator
-from CybORG.Agents import (
-    B_lineAgent,
-    RedMeanderAgent,
-    BlueReactRestoreAgent,
-    BlueReactRemoveAgent,
-    MonitorAgent,
+# ==== 路径注入：优先使用 Debugged_CybORG ====
+CUR_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.dirname(os.path.dirname(CUR_DIR))
+
+# Debugged_CybORG 根目录：.../third_party/CybORG_plus_plus/Debugged_CybORG
+CYBORG_PP_ROOT = os.path.abspath(
+    os.path.join(PROJECT_ROOT, "third_party", "CybORG_plus_plus", "Debugged_CybORG")
 )
+# 实际包目录：.../third_party/CybORG_plus_plus/Debugged_CybORG/CybORG
+CYBORG_PP_PKG = os.path.join(CYBORG_PP_ROOT, "CybORG")
+
+# 原版 CybORG（如果有的话）：.../third_party/CybORG
+CYBORG_STOCK_ROOT = os.path.abspath(
+    os.path.join(PROJECT_ROOT, "third_party", "CybORG")
+)
+
+# 去掉第三方原版 CybORG 目录，避免冲突
+sys.path[:] = [p for p in sys.path if os.path.abspath(p) != CYBORG_STOCK_ROOT]
+
+# 确保 Debugged_CybORG 相关目录在 sys.path 里
+for p in (CYBORG_PP_ROOT, CYBORG_PP_PKG):
+    if os.path.isdir(p) and p not in sys.path:
+        sys.path.insert(0, p)
+
+# 如果之前已经从别的地方导入过 CybORG（比如 pip 安装版），先删掉
+if "CybORG" in sys.modules:
+    try:
+        prev = sys.modules["CybORG"]
+        print(
+            "[cyborg_wrapper] ⚠ removing pre-imported CybORG: "
+            f"{getattr(prev, '__file__', repr(prev))}"
+        )
+    except Exception:
+        print("[cyborg_wrapper] ⚠ removing pre-imported CybORG (no __file__)")
+    del sys.modules["CybORG"]
+
+# 调试：看看当前 sys.path 里跟 CybORG_plus_plus 有关的路径
+print(
+    "[cyborg_wrapper] 🔍 search paths = ",
+    [p for p in sys.path if "CybORG_plus_plus" in p],
+)
+
+# 看看现在 Python 准备从哪加载 CybORG
+spec = importlib.util.find_spec("CybORG")
+print(
+    "[cyborg_wrapper] 🔍 CybORG spec = "
+    f"{spec.origin if spec and spec.origin else 'NOT FOUND'}"
+)
+
+# === 这里才真正导入 CybORG（应该来自 Debugged_CybORG/CybORG）===
+from CybORG import CybORG
+from CybORG.Agents.SimpleAgents.Meander import RedMeanderAgent
+from CybORG.Agents.SimpleAgents.B_line import B_lineAgent
+from CybORG.Agents.SimpleAgents.BlueReactAgent import BlueReactRemoveAgent, BlueReactRestoreAgent
+from CybORG.Agents.Wrappers import EnumActionWrapper, BlueTableWrapper
+
+
+from CybORG import CybORG
+from CybORG.Agents.SimpleAgents.Meander import RedMeanderAgent
+from CybORG.Agents.SimpleAgents.B_line import B_lineAgent
+from CybORG.Agents.SimpleAgents.BlueReactAgent import BlueReactRemoveAgent, BlueReactRestoreAgent
 from CybORG.Agents.Wrappers import EnumActionWrapper, BlueTableWrapper
 
 # ====== 代理注册表 ======
 RED_AGENT_REGISTRY: Dict[str, Callable[[], Any]] = {
-    "B_lineAgent": lambda: B_lineAgent(),
-    "MeanderAgent": lambda: RedMeanderAgent(),
+    "B_lineAgent": B_lineAgent,
+    "MeanderAgent": RedMeanderAgent,
 }
 
 BLUE_AGENT_REGISTRY: Dict[str, Callable[[], Any]] = {
-    "BlueReactRestoreAgent": lambda: BlueReactRestoreAgent(),
-    "BlueReactRemoveAgent": lambda: BlueReactRemoveAgent(),
-    "MonitorAgent": lambda: MonitorAgent(),  # 这里只是 agent 类，不代表有 Monitor 动作
+    "BlueReactRestoreAgent": BlueReactRestoreAgent,
+    "BlueReactRemoveAgent": BlueReactRemoveAgent,
 }
 
 # ====== 运行统计归一化（Welford） ======
@@ -193,7 +246,7 @@ class CybORGWrapper:
                 continue
             self._host_roles[hid] = h
             role = h.get("role", "")
-            if role == "user_host":
+            if role in ("user_host", "red_foothold"):
                 self._host_groups["user"].add(hid)
             elif role == "enterprise_server":
                 self._host_groups["enterprise"].add(hid)
@@ -226,6 +279,17 @@ class CybORGWrapper:
                 scenario_file.replace("Scenario2.yaml", "Scenario1b.yaml"),
                 os.path.join(os.path.dirname(scenario_file), "Scenario1b.yaml"),
             ]
+            # 优先从 CybORG++ debug 包里找（避免混用系统安装的 CybORG 数据文件）
+            cyb_pp_scen = os.path.join(
+                CYBORG_PP_ROOT,
+                "CybORG",
+                "CybORG",
+                "Shared",
+                "Scenarios",
+                "Scenario2.yaml",
+            )
+            if os.path.exists(cyb_pp_scen):
+                candidates.insert(0, cyb_pp_scen)
             try:
                 import CybORG as _C
 
@@ -249,6 +313,7 @@ class CybORGWrapper:
                 raise FileNotFoundError(f"场景文件不存在，尝试过：{candidates}")
 
         env_cfg["scenario_file"] = scenario_file
+        print(f"✅ 已解析场景文件: {scenario_file}")
 
     def _set_seed(self, seed: int):
         random.seed(seed)
@@ -283,7 +348,7 @@ class CybORGWrapper:
     def _build_red_agent(self, class_name: str):
         if class_name not in RED_AGENT_REGISTRY:
             raise ValueError(f"未知的红方代理: {class_name}")
-        agent = RED_AGENT_REGISTRY[class_name]()
+        agent = RED_AGENT_REGISTRY[class_name]
         self._current_red_agent = class_name
         return agent
 
@@ -291,23 +356,20 @@ class CybORGWrapper:
         blue_cls = self.config["environment"]["agents"]["blue"]
         if blue_cls not in BLUE_AGENT_REGISTRY:
             raise ValueError(f"未知的蓝方代理: {blue_cls}")
-        return BLUE_AGENT_REGISTRY[blue_cls]()
+        return BLUE_AGENT_REGISTRY[blue_cls]
 
     # ---------- 环境构建 ----------
 
     def _create_environment(self):
         scen = self.config["environment"]["scenario_file"]
-        seed = int(self.config["environment"].get("seed", 42))
 
         red = self._pick_red_agent()
         blue = self._build_blue_agent()
 
-        scenario_gen = FileReaderScenarioGenerator(scen)
         base_env = CybORG(
-            scenario_generator=scenario_gen,
+            scenario_file=scen,
             environment="sim",
             agents={"Red": red, "Blue": blue},
-            seed=seed,
         )
         table_env = BlueTableWrapper(base_env, output_mode="vector")
         enum_env = EnumActionWrapper(table_env)
