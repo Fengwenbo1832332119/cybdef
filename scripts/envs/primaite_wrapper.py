@@ -59,6 +59,12 @@ class PrimaiteWrapper:
         self.action_dim: int = 0
         self.action_names: List[str] = []
 
+        # 先尝试从 config 直接读取蓝方 action_map（即便 gym 的 action_space 没暴露名字，也能复原顺序）
+        cfg_action_names = self._load_action_names_from_config()
+        if cfg_action_names:
+            self.action_names = cfg_action_names
+            self.action_dim = len(cfg_action_names)
+
         if self.action_space is not None and hasattr(self.action_space, "n"):
             self.action_dim = int(self.action_space.n)
 
@@ -104,6 +110,30 @@ class PrimaiteWrapper:
                     if name:
                         self.host_names.append(name)
 
+    def _load_action_names_from_config(self) -> List[str]:
+        """从场景 yaml 解析蓝方 action_map，保持 index 顺序。"""
+        try:
+            cfg = yaml.safe_load(self.config_path.read_text(encoding="utf-8"))
+        except Exception:
+            return []
+
+        for agent in cfg.get("agents", []):
+            if str(agent.get("team", "")).upper() != "BLUE":
+                continue
+            action_map = agent.get("action_space", {}).get("action_map", {})
+            if not isinstance(action_map, dict):
+                continue
+            # 按照 index 0..N-1 排序取出 action 名称
+            names: List[str] = []
+            for idx in sorted(action_map.keys(), key=lambda x: int(x)):
+                try:
+                    names.append(str(action_map[idx]["action"]))
+                except Exception:
+                    names.append(str(action_map[idx]))
+            if names:
+                return names
+        return []
+
     # ------------------------------------------------------------------
     #  obs flatten / facts 提取
     # ------------------------------------------------------------------
@@ -129,116 +159,135 @@ class PrimaiteWrapper:
 
     def _extract_facts(self, obs_raw: Any, reward: float = 0.0) -> Dict[str, Any]:
         """
-        ICS 高级事实解析：
-        - nmne_detected / nmne_high
-        - traffic_spike
-        - node_down / critical_node_down
-        - suspicious_activity
+        轻量版 ICS facts：
+        - recent_reward: 最近一步环境奖励
+        - positive_recent_reward: 奖励是否偏正，用于“系统稳定时”的规则
+        - suspicious_activity / nmne_* / traffic_spike / node_down / critical_node_down
+          尽量从 obs 里推一点（软规则用，不会强约束 PPO）
         """
+        def _to_level(val: Any) -> int:
+            try:
+                return int(val)
+            except Exception:
+                pass
 
-        facts = {
+            if isinstance(val, bool):
+                return 1 if val else 0
+
+            if isinstance(val, str):
+                v = val.lower()
+                if v in {"high", "critical"}:
+                    return 3
+                if v in {"medium", "med"}:
+                    return 2
+                if v in {"low", "warn"}:
+                    return 1
+                if v in {"none", "ok", "normal"}:
+                    return 0
+            return 0
+
+        facts: Dict[str, Any] = {
             "recent_reward": float(reward),
             "positive_recent_reward": float(reward) > 0.05,
-
+            "negative_recent_reward": float(reward) < -0.05,
             "suspicious_activity": False,
             "nmne_detected": False,
             "nmne_high": False,
             "traffic_spike": False,
             "node_down": False,
             "critical_node_down": False,
+            "env_name": self.scenario,
         }
 
-        # 获取 structured obs（PrimAITE 默认是 dict）
-        structured = None
+        # 尝试从 obs 里解析结构
+        structured: Optional[Any] = None
         if isinstance(obs_raw, dict):
             structured = obs_raw
-        else:
-            return facts  # 保险措施
+        elif isinstance(obs_raw, np.ndarray) and self.observation_space is not None:
+            try:
+                from gymnasium.spaces import unflatten
 
-        nmne_values = []
-        traffic_values = []
-        node_status = {}  # host → status (1=UP, 0=DOWN)
+                structured = unflatten(self.observation_space, obs_raw)
+            except Exception:
+                structured = None
 
-        critical = self.critical_hosts  # PLC / HMI / controller
+        nmne_levels: List[int] = []
+        traffic_levels: List[int] = []
+        node_statuses: Dict[str, int] = {}
 
-        def walk(obj, path):
-            # 遍历 structured obs
+        def _walk(obj: Any, path: List[str]) -> None:
             if isinstance(obj, dict):
                 for k, v in obj.items():
                     key = str(k).lower()
+                    next_path = path + [str(k)]
 
-                    # --- NMNE ---
+                    # nmne 结构：尝试把 value 统一成等级
                     if key == "nmne" and isinstance(v, dict):
-                        for vv in v.values():
-                            try:
-                                nmne_values.append(int(vv))
-                            except:
-                                pass
+                        for val in v.values():
+                            nmne_levels.append(_to_level(val))
 
-                    # --- traffic load ---
-                    elif key == "traffic" and isinstance(v, dict):
-                        # 分层结构：protocol → ports → values
-                        for proto_vals in v.values():
-                            if isinstance(proto_vals, dict):
-                                for port_vals in proto_vals.values():
-                                    if isinstance(port_vals, dict):
-                                        for val in port_vals.values():
-                                            try:
-                                                traffic_values.append(int(val))
-                                            except:
-                                                pass
-                                    else:
-                                        try:
-                                            traffic_values.append(int(port_vals))
-                                        except:
-                                            pass
+                    # traffic 结构：多层 dict，尽量把叶子收集进 traffic_levels
+                    if key == "traffic" and isinstance(v, dict):
+                        def _collect_traffic(x: Any):
+                            if isinstance(x, dict):
+                                for vv in x.values():
+                                    _collect_traffic(vv)
+                            else:
+                                traffic_levels.append(_to_level(x))
 
-                    # --- node / NIC 状态 ---
-                    elif key in ("operating_status", "nic_status"):
+                        _collect_traffic(v)
+
+                    # 节点状态（operating_status / nic_status 之类）
+                    if key in {"operating_status", "nic_status"}:
                         try:
-                            val = int(v)
-                            # 查找 host 名字
-                            host = None
-                            for h in self.host_names:
-                                if h in path:
-                                    host = h
-                                    break
-                            if host:
-                                node_status[host] = val
-                        except:
+                            status_val = int(v)
+                            # 粗暴一点：如果 path 里包含某个 hostname，就记到该 host 上
+                            host_hit = next(
+                                (h for h in self.host_names if h in path or h in next_path),
+                                None,
+                            )
+                            if host_hit:
+                                node_statuses[host_hit] = status_val
+                            else:
+                                node_statuses.setdefault("*", status_val)
+                        except Exception:
                             pass
 
-                    walk(v, path + [key])
+                    _walk(v, next_path)
 
-            elif isinstance(obj, list):
+            elif isinstance(obj, (list, tuple)):
                 for idx, item in enumerate(obj):
-                    walk(item, path + [str(idx)])
+                    _walk(item, path + [str(idx)])
 
-        walk(structured, [])
+        if structured is not None:
+            _walk(structured, [])
 
-        # ----------- 事实判断：NMNE -----------
-        if nmne_values:
-            facts["nmne_detected"] = any(v > 0 for v in nmne_values)
-            facts["nmne_high"] = any(v >= 2 for v in nmne_values)
+        # ---- nmne / traffic 逻辑 ----
+        facts["nmne_detected"] = any(level > 0 for level in nmne_levels)
+        facts["nmne_high"] = any(level >= 2 for level in nmne_levels)
+        facts["traffic_spike"] = any(level >= 2 for level in traffic_levels)
 
-        # ----------- 事实判断：traffic spike -----------
-        if traffic_values:
-            facts["traffic_spike"] = any(v >= 2 for v in traffic_values)
+        # ---- 节点存活状态 ----
+        def _is_down(val: int) -> bool:
+            # 这里假设 1 = up，其余都当 down
+            return val != 1
 
-        # ----------- 事实判断：节点宕机 -----------
-        if node_status:
-            down_any = any(v != 1 for v in node_status.values())
-            facts["node_down"] = down_any
+        any_down = any(_is_down(v) for v in node_statuses.values())
+        facts["node_down"] = any_down
 
-            # critical node
-            crit_down = any(h in critical and node_status[h] != 1 for h in node_status)
-            facts["critical_node_down"] = crit_down
+        critical_down = False
+        for host, status in node_statuses.items():
+            if host in self.critical_hosts and _is_down(status):
+                critical_down = True
+                break
+        facts["critical_node_down"] = critical_down
 
-        # ----------- suspicious_activity -----------
+        # 如果出现 nmne / traffic spike / 关键节点 down，就视为 "suspicious_activity"
         facts["suspicious_activity"] = (
-                facts["nmne_detected"]
-                or facts["traffic_spike"]
-                or facts["critical_node_down"]
+            facts["nmne_detected"]
+            or facts["traffic_spike"]
+            or critical_down
+            or facts["negative_recent_reward"]
         )
 
         return facts
