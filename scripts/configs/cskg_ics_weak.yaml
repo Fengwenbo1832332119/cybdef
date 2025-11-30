@@ -1,64 +1,105 @@
-# scripts/configs/cskg_ics_weak.yaml
 meta:
-  version: "0.2-ics-weak"
-  description: "ICS weak-CSKG using real action names from ics.yaml."
+  version: "0.1-ics-weak"
+  description: "ICS 正向引导版 CSKG：轻度提升侦察/阻断/复位动作，不做强掩码"
 
 facts:
-  - recent_reward
-  - bad_recent_reward
-  - very_bad_recent_reward
   - suspicious_activity
+  - nmne_detected
+  - nmne_high
+  - traffic_spike
+  - node_down
+  - critical_node_down
+  - recent_reward
+  - positive_recent_reward
 
 actions:
-  observe:
-    - "OBSERVE"
-  diagnose:
-    - "DIAGNOSE"
-  mitigate:
-    - "MITIGATE"
-  risky_ops:
-    - "SHUTDOWN"
-    - "RESTART"
-    - "RECONFIGURE"
-  alert:
-    - "ALERT"
-  hold:
-    - "HOLD"
-  any:
-    - ".*"
+  recon:
+    - "node-network-service-recon"
+  block:
+    - "router-acl-add-rule"
+  unblock:
+    - "router-acl-remove-rule"
+  reset:
+    - "node-reset"
+  idle:
+    - "do-nothing"
 
-mask_rules: []
-
-prior_rules:
-  - name: "ICS-Prior-Diagnose-When-Bad"
-    condition: "FACT('bad_recent_reward')"
+# ======================================================
+# 1) Soft mask: reasoner 只接受 alpha，不接受 value!!!
+# ======================================================
+mask_rules:
+  - name: "No-Block-When-Quiet"
+    condition: "NOT FACT('suspicious_activity')"
     effect:
+      type: "soft_mask"
       actions:
-        - "DIAGNOSE"
-      value: 0.4
+        - "router-acl-add-rule"
+      alpha: 0.35     # ← 必须用 alpha，不能用 value！！！
 
-  - name: "ICS-Prior-Observe-When-Suspicious"
+# ======================================================
+# 2) Prior rules（用 value）
+# ======================================================
+prior_rules:
+  - name: "Prefer-Recon-On-Suspicion"
     condition: "FACT('suspicious_activity')"
     effect:
       actions:
-        - "OBSERVE"
-      value: 0.2
+        - "node-network-service-recon"
+      value: 0.4
 
+  - name: "Prefer-Block-On-High-NMNE"
+    condition: "FACT('nmne_high') OR FACT('traffic_spike')"
+    effect:
+      actions:
+        - "router-acl-add-rule"
+      value: 0.5
+
+  - name: "Prefer-Reset-When-Critical-Down"
+    condition: "FACT('critical_node_down')"
+    effect:
+      actions:
+        - "node-reset"
+      value: 0.55
+
+  - name: "Prefer-Unblock-If-Stable"
+    condition: "FACT('positive_recent_reward') AND NOT FACT('suspicious_activity')"
+    effect:
+      actions:
+        - "router-acl-remove-rule"
+      value: 0.25
+
+# ======================================================
+# 3) Reward rules（用 value）
+# ======================================================
 reward_rules:
-  - name: "ICS-Penalty-Risky-When-Bad"
-    condition: "FACT('bad_recent_reward')"
+  - name: "Bonus-Recon-Under-Alert"
+    condition: "FACT('suspicious_activity')"
     effect:
       type: "add"
       actions:
-        - "SHUTDOWN"
-        - "RESTART"
-        - "RECONFIGURE"
-      value: -0.05
+        - "node-network-service-recon"
+      value: 0.05
 
-  - name: "ICS-Reward-Mitigate-When-VeryBad"
-    condition: "FACT('very_bad_recent_reward')"
+  - name: "Bonus-Block-Under-High-NMNE"
+    condition: "FACT('nmne_high') OR FACT('traffic_spike')"
     effect:
       type: "add"
       actions:
-        - "MITIGATE"
-      value: 0.1
+        - "router-acl-add-rule"
+      value: 0.08
+
+  - name: "Bonus-Reset-When-Critical-Down"
+    condition: "FACT('critical_node_down')"
+    effect:
+      type: "add"
+      actions:
+        - "node-reset"
+      value: 0.12
+
+  - name: "Penalty-Idle-When-Alert"
+    condition: "FACT('suspicious_activity')"
+    effect:
+      type: "add"
+      actions:
+        - "do-nothing"
+      value: -0.06

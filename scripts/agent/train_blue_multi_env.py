@@ -332,7 +332,7 @@ def main():
     # --- 初始化 MultiEnvWrapper ---
     env = MultiEnvWrapper(
         env_names=["cyborg", "ics", "lot", "robotics"],
-        weights=[0.0, 1.0, 0.0, 0.0],  # 训练阶段稍微偏重 CybORG
+        weights=[0.0, 1.0, 0.0, 0.0],  # 这里其实是只训练 ICS，你后面可以再调
         mode="train",
     )
 
@@ -360,19 +360,20 @@ def main():
 
     multi_kb: MultiEnvKB | None = None
 
+    # ====== 初始化 MultiEnvKB（cyborg + ics）======
     if args.enable_cskg:
         try:
             from scripts.envs.cyborg_wrapper import CybORGWrapper
             from scripts.envs.primaite_wrapper import PrimaiteWrapper
 
-            # 1) CybORG 动作名
+            # 1) CybORG 动作名 —— 用 wrapper 自己的 action_names
             tmp_cyb = CybORGWrapper(str(CYBORG_ENV_CFG_PATH))
-            cyborg_action_names = list(tmp_cyb.action_space.names)
+            cyborg_action_names = list(tmp_cyb.action_names)
             tmp_cyb.close()
 
-            # 2) ICS 动作名（从 ics.yaml 解析 do-nothing / mitigate 等）
+            # 2) ICS 动作名 —— 也是 wrapper 的 action_names（你在 PrimaiteWrapper 里已经定义了）
             tmp_ics = PrimaiteWrapper(str(ICS_ENV_CFG_PATH))
-            ics_action_names = list(tmp_ics.action_space.names)
+            ics_action_names = list(tmp_ics.action_names)
             tmp_ics.close()
 
             # 3) 按 MultiEnvKB.from_env_specs 要求组装 env_specs
@@ -383,21 +384,24 @@ def main():
                     "action_names": cyborg_action_names,
                 },
                 "ics": {
+                    # 现在先共用一个 seed_graph，后面你有单独 ICS 版再换
                     "seed_graph": ICS_SEED_GRAPH_PATH,
                     "cskg": ICSKG_CFG_PATH,
                     "action_names": ics_action_names,
                 },
-                # 你以后可以在这里加 "lot" / "robotics"
+                # 以后可以在这里继续加 "lot" / "robotics"
             }
 
             multi_kb = MultiEnvKB.from_env_specs(env_specs, recent_steps=10)
             print(
-                f"🧠 MultiEnvKB 初始化完成：挂载场景 = "
-                f"{', '.join(list(env_specs.keys()))}"
+                "🧠 MultiEnvKB 初始化完成：挂载场景 = "
+                + ", ".join(list(env_specs.keys()))
             )
         except Exception as e:
             print(f"⚠ 无法初始化 MultiEnvKB（cyborg + ics），CSKG 将被禁用: {e}")
             multi_kb = None
+    else:
+        multi_kb = None
 
     global_step = 0
 
@@ -416,7 +420,6 @@ def main():
         val_buf: List[float] = []
         done_buf: List[float] = []
 
-        # ep_return 表示本次 update 内的「训练用回报」（可能跨多个 episode）
         ep_return = 0.0
         steps_collected = 0
 
@@ -428,10 +431,11 @@ def main():
             logits = logits.squeeze(0)
             value = value.squeeze(0)
 
-            # 当前子环境名（MultiEnvWrapper 应该有 current_env_name）
+            # 当前子环境名
             cur_env_name = getattr(env, "current_env_name", None)
 
-            # === CSKG 先验（weak），如果当前场景在 MultiEnvKB 里，就加 soft prior ===
+            # === CSKG 先验（weak）===
+            prior_np = None
             if multi_kb is not None and cur_env_name is not None:
                 prior_np = multi_kb.prior_logits(
                     env_name=cur_env_name,
@@ -440,6 +444,60 @@ def main():
                 )
                 prior_t = torch.from_numpy(prior_np).to(DEVICE)
                 logits = logits + CSKG_PRIOR_COEF * prior_t
+
+                if cur_env_name in ("cyborg", "ics") and steps_collected < 20:
+                    tag = cur_env_name.upper()
+                    print(
+                        f"[DEBUG-{tag}-CSKG][prior] upd={upd} "
+                        f"step={steps_collected} env={cur_env_name}, coef={CSKG_PRIOR_COEF}"
+                    )
+                    print("  prior_np[:10] =", prior_np[:10])
+
+            # === 每个场景自己的合法动作掩码 ===
+            try:
+                mask_np = env.current_action_mask().astype(np.float32)
+            except AttributeError:
+                mask_np = np.ones(act_dim, dtype=np.float32)
+
+            if mask_np.size != act_dim:
+                mask_np = np.ones(act_dim, dtype=np.float32)
+
+            mask_t = torch.from_numpy(mask_np).to(DEVICE)
+            logits = logits.clone()
+            logits[mask_t == 0] = -1e9
+
+            # === PPO 采样 ===
+            dist = Categorical(logits=logits)
+            action = dist.sample()
+            logp = dist.log_prob(action)
+            a_idx = int(action.item())
+
+            # 与多环境交互
+            next_obs_raw, reward, done, info = env.step(a_idx)
+
+            env_r = float(reward)
+            d = bool(done)
+            next_facts = (
+                next_obs_raw.get("facts", {}) if isinstance(next_obs_raw, dict) else {}
+            )
+
+            # === CSKG 奖励塑形 ===
+            r = env_r
+            if multi_kb is not None and cur_env_name is not None:
+                r = multi_kb.shape_reward(
+                    env_name=cur_env_name,
+                    facts=next_facts,
+                    action_idx=a_idx,
+                    env_reward=env_r,
+                )
+                if cur_env_name in ("cyborg", "ics") and steps_collected < 20:
+                    tag = cur_env_name.upper()
+                    print("[DEBUG-ICS-FACTS]", next_facts)
+                    print(
+                        f"[DEBUG-{tag}-CSKG][reward] upd={upd} "
+                        f"step={steps_collected} env={cur_env_name}, act={a_idx}, "
+                        f"env_r={env_r:.4f}, shaped_r={r:.4f}"
+                    )
 
             # === 每个场景自己的合法动作掩码 ===
             try:
@@ -453,14 +511,6 @@ def main():
             mask_t = torch.from_numpy(mask_np).to(DEVICE)
             logits = logits.clone()
             logits[mask_t == 0] = -1e9  # 把非法动作 logit 压到极小
-
-            # ---- 调试：只看 ICS 的 prior ----
-            if cur_env_name == "ics" and upd <= 2 and steps_collected < 3:
-                print(
-                    f"[DEBUG-ICS-CSKG][prior] upd={upd} step={steps_collected} "
-                    f"env={cur_env_name}, coef={CSKG_PRIOR_COEF}"
-                )
-                print("  prior_np[:10] =", prior_np[:10])
 
             # === PPO 采样 ===
             dist = Categorical(logits=logits)
@@ -486,11 +536,13 @@ def main():
                     env_reward=env_r,
                 )
 
-                # ---- 调试：只看 ICS 的 reward 塑形 ----
-                if cur_env_name == "ics" and upd <= 2 and steps_collected < 3:
+                if cur_env_name in ("cyborg", "ics") and steps_collected < 20:
+                    print("[DEBUG-ICS-FACTS]", next_facts)
+                    tag = cur_env_name.upper()
                     print(
-                        f"[DEBUG-ICS-CSKG][reward] upd={upd} step={steps_collected} "
-                        f"env={cur_env_name}, act={a_idx}, env_r={env_r:.4f}, shaped_r={r:.4f}"
+                        f"[DEBUG-{tag}-CSKG][reward] upd={upd} "
+                        f"step={steps_collected} env={cur_env_name}, act={a_idx}, "
+                        f"env_r={env_r:.4f}, shaped_r={r:.4f}"
                     )
 
             # buffer 记录（PPO 用的是 r = 训练信号）
