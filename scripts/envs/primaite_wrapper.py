@@ -46,6 +46,12 @@ class PrimaiteWrapper:
         # ---- 创建原始 Primaite 环境 ----
         self.env = PrimaiteGymEnv(str(self.config_path))
 
+        # 原始（未 flatten）观察空间，用于后续解包 obs_raw
+        self._raw_observation_space = None
+        try:
+            self._raw_observation_space = self.env.agent.observation_manager.space
+        except Exception:
+            self._raw_observation_space = None
         # 一定要在任何 reset / _extract_facts 之前挂上 spaces
         self.observation_space = getattr(self.env, "observation_space", None)
         self.action_space = getattr(self.env, "action_space", None)
@@ -203,14 +209,16 @@ class PrimaiteWrapper:
         structured: Optional[Any] = None
         if isinstance(obs_raw, dict):
             structured = obs_raw
-        elif isinstance(obs_raw, np.ndarray) and self.observation_space is not None:
-            try:
-                from gymnasium.spaces import unflatten
+        elif isinstance(obs_raw, np.ndarray):
+            # 尽量用「未 flatten 前的空间」去解包，才能解析 NMNE / 节点状态等层级字段
+            target_space = self._raw_observation_space or self.observation_space
+            if target_space is not None:
+                try:
+                    from gymnasium.spaces import unflatten
 
-                structured = unflatten(self.observation_space, obs_raw)
-            except Exception:
-                structured = None
-
+                    structured = unflatten(target_space, obs_raw)
+                except Exception:
+                    structured = None
         nmne_levels: List[int] = []
         traffic_levels: List[int] = []
         node_statuses: Dict[str, int] = {}
