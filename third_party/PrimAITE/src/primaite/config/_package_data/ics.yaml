@@ -183,9 +183,9 @@ agents:
       action_map:
         0:
           action: do-nothing
-          options: {}
+          options: { }
 
-        # 1: network service recon from security_monitor to OT subnet (Modbus-like port 502)
+        # 1: network service recon from security_monitor to OT subnet
         1:
           action: node-network-service-recon
           options:
@@ -196,7 +196,7 @@ agents:
             target_protocol: tcp
             show: true
 
-        # 2: add ACL on edge_router to block OT gateway to IT workstation TCP (all ports)
+        # 2: add ACL on edge_router to block OT gateway -> IT workstation TCP
         2:
           action: router-acl-add-rule
           options:
@@ -230,7 +230,7 @@ agents:
           options:
             node_name: ot_gateway
 
-        # 6: new blue action A: file scan on ot_controller database file
+        # 6: file scan on ot_controller database file
         6:
           action: node-file-scan
           options:
@@ -238,12 +238,13 @@ agents:
             folder_name: database
             file_name: control.db
 
-        # 7: new blue action B: application scan on ot_gateway database-client
+        # 7: application scan on ot_gateway database-client
         7:
           action: node-application-scan
           options:
             node_name: ot_gateway
             application_name: database-client
+
 
     reward_function:
       reward_components:
@@ -277,7 +278,7 @@ agents:
       flatten_obs: true
       action_masking: true
 
-  # Red: periodic attacker moving from DMZ/IT to OT
+  # Red 1: lateral mover + data manipulation
   - ref: lateral_mover
     team: RED
     type: periodic-agent
@@ -309,6 +310,55 @@ agents:
             target_protocol: tcp
             target_port: 502
             show: true
+        3:
+          action: node-application-execute
+          options:
+            node_name: plc_node
+            application_name: data-manipulation-bot
+
+  # Red 2: DoS attacker
+  - ref: dos_attacker
+    team: RED
+    type: periodic-agent
+    agent_settings:
+      possible_start_nodes:
+        - dmz_proxy
+      target_application: dos-bot
+      start_step: 20
+      frequency: 15
+      variance: 3
+    action_space:
+      action_map:
+        0:
+          action: do-nothing
+          options: {}
+        1:
+          action: node-application-execute
+          options:
+            node_name: dmz_proxy
+            application_name: dos-bot
+
+  # Red 3: Ransomware attacker
+  - ref: ransomware_attacker
+    team: RED
+    type: periodic-agent
+    agent_settings:
+      possible_start_nodes:
+        - dmz_proxy
+      target_application: ransomware-script
+      start_step: 35
+      frequency: 25
+      variance: 5
+    action_space:
+      action_map:
+        0:
+          action: do-nothing
+          options: {}
+        1:
+          action: node-application-execute
+          options:
+            node_name: dmz_proxy
+            application_name: ransomware-script
 
 simulation:
   network:
@@ -378,12 +428,33 @@ simulation:
           - type: web-server
           - type: ftp-server
         applications:
+          # Red app 1: data manipulation bot
           - type: data-manipulation-bot
             options:
+              server_ip: 10.0.20.10
+              server_password: "secret"
+              payload: "WRITE"
               port_scan_p_of_success: 0.7
               data_manipulation_p_of_success: 0.6
-              payload: "WRITE"
+              repeat: false
+
+          # Red app 2: DoS bot
+          - type: dos-bot
+            options:
+              target_ip_address: 10.0.20.10
+              target_port: 502
+              payload: "HTTP_FLOOD"
+              repeat: false
+              port_scan_p_of_success: 0.6
+              dos_intensity: 0.1
+              max_sessions: 50
+
+          # Red app 3: ransomware script
+          - type: ransomware-script
+            options:
               server_ip: 10.0.20.10
+              server_password: "secret"
+              payload: "ENCRYPT"
 
       - hostname: security_monitor
         type: server
@@ -433,10 +504,12 @@ simulation:
         applications:
           - type: data-manipulation-bot
             options:
-              port_scan_p_of_success: 0.5
-              data_manipulation_p_of_success: 0.5
-              payload: "MODBUS_WRITE"
               server_ip: 10.0.20.10
+              server_password: "secret"
+              payload: "MODBUS_WRITE"
+              port_scan_p_of_success: 0.65
+              data_manipulation_p_of_success: 0.55
+              repeat: false
 
     links:
       - endpoint_a_hostname: edge_router
