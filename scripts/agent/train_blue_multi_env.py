@@ -360,23 +360,32 @@ def main():
 
     multi_kb: MultiEnvKB | None = None
 
-    # ====== 初始化 MultiEnvKB（cyborg + ics）======
     if args.enable_cskg:
         try:
             from scripts.envs.cyborg_wrapper import CybORGWrapper
             from scripts.envs.primaite_wrapper import PrimaiteWrapper
 
-            # 1) CybORG 动作名 —— 用 wrapper 自己的 action_names
+            # ===== 1) CybORG 动作名 =====
             tmp_cyb = CybORGWrapper(str(CYBORG_ENV_CFG_PATH))
-            cyborg_action_names = list(tmp_cyb.action_names)
+
+            if hasattr(tmp_cyb, "action_names"):
+                # 如果你之后给 CybORGWrapper 也加了 action_names，就走这里
+                cyborg_action_names = list(tmp_cyb.action_names)
+            elif hasattr(tmp_cyb, "action_space") and hasattr(tmp_cyb.action_space, "names"):
+                # 目前实际情况：CybORG 用的是 action_space.names
+                cyborg_action_names = list(tmp_cyb.action_space.names)
+            else:
+                raise RuntimeError("CybORGWrapper: 无法找到动作名列表（既没有 action_names 也没有 action_space.names）")
+
             tmp_cyb.close()
 
-            # 2) ICS 动作名 —— 也是 wrapper 的 action_names（你在 PrimaiteWrapper 里已经定义了）
+            # ===== 2) ICS 动作名 =====
+            # PrimaiteWrapper 我们已经在 __init__ 里显式加了 self.action_names
             tmp_ics = PrimaiteWrapper(str(ICS_ENV_CFG_PATH))
             ics_action_names = list(tmp_ics.action_names)
             tmp_ics.close()
 
-            # 3) 按 MultiEnvKB.from_env_specs 要求组装 env_specs
+            # ===== 3) MultiEnvKB 的 env_specs =====
             env_specs = {
                 "cyborg": {
                     "seed_graph": SEED_GRAPH_PATH,
@@ -384,12 +393,11 @@ def main():
                     "action_names": cyborg_action_names,
                 },
                 "ics": {
-                    # 现在先共用一个 seed_graph，后面你有单独 ICS 版再换
                     "seed_graph": ICS_SEED_GRAPH_PATH,
                     "cskg": ICSKG_CFG_PATH,
                     "action_names": ics_action_names,
                 },
-                # 以后可以在这里继续加 "lot" / "robotics"
+                # 后面你要给 LOT / ROBOTICS 也挂 CSKG 的时候，在这里继续加
             }
 
             multi_kb = MultiEnvKB.from_env_specs(env_specs, recent_steps=10)
@@ -397,6 +405,7 @@ def main():
                 "🧠 MultiEnvKB 初始化完成：挂载场景 = "
                 + ", ".join(list(env_specs.keys()))
             )
+
         except Exception as e:
             print(f"⚠ 无法初始化 MultiEnvKB（cyborg + ics），CSKG 将被禁用: {e}")
             multi_kb = None
