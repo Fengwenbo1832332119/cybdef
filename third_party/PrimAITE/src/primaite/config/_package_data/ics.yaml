@@ -183,7 +183,7 @@ agents:
       action_map:
         0:
           action: do-nothing
-          options: { }
+          options: {}
 
         # 1: network service recon from security_monitor to OT subnet
         1:
@@ -245,7 +245,6 @@ agents:
             node_name: ot_gateway
             application_name: database-client
 
-
     reward_function:
       reward_components:
         # database integrity on ot_controller
@@ -287,9 +286,9 @@ agents:
         - dmz_proxy
         - it_workstation
       target_application: data-manipulation-bot
-      start_step: 12
-      frequency: 18
-      variance: 4
+      start_step: 5
+      frequency: 5
+      variance: 1
     action_space:
       action_map:
         0:
@@ -324,9 +323,9 @@ agents:
       possible_start_nodes:
         - dmz_proxy
       target_application: dos-bot
-      start_step: 20
-      frequency: 15
-      variance: 3
+      start_step: 8
+      frequency: 6
+      variance: 1
     action_space:
       action_map:
         0:
@@ -346,9 +345,9 @@ agents:
       possible_start_nodes:
         - dmz_proxy
       target_application: ransomware-script
-      start_step: 35
-      frequency: 25
-      variance: 5
+      start_step: 12
+      frequency: 6
+      variance: 1
     action_space:
       action_map:
         0:
@@ -359,6 +358,62 @@ agents:
           options:
             node_name: dmz_proxy
             application_name: ransomware-script
+
+  # Red Master: multi-stage APT（
+  - ref: apt_master
+    team: RED
+    type: periodic-agent
+    agent_settings:
+      possible_start_nodes:
+        - dmz_proxy
+      target_application: data-manipulation-bot
+      start_step: 4
+      frequency: 4
+      variance: 1
+
+    action_space:
+      action_map:
+        0:
+          action: do-nothing
+          options: {}
+
+        # Stage 1: Data manipulation reconnaissance
+        1:
+          action: node-application-execute
+          options:
+            node_name: dmz_proxy
+            application_name: data-manipulation-bot
+
+        # Stage 2: DoS attack
+        2:
+          action: node-application-execute
+          options:
+            node_name: dmz_proxy
+            application_name: dos-bot
+
+        # Stage 3: Ransomware
+        3:
+          action: node-application-execute
+          options:
+            node_name: dmz_proxy
+            application_name: ransomware-script
+
+        # Stage 4: lateral pivot to OT gateway
+        4:
+          action: node-network-service-recon
+          options:
+            source_node: dmz_proxy
+            target_ip_address:
+              - 10.0.20.1
+            target_port: 22
+            target_protocol: tcp
+
+        # Stage 5: sabotage PLC node
+        5:
+          action: node-application-execute
+          options:
+            node_name: plc_node
+            application_name: data-manipulation-bot
 
 simulation:
   network:
@@ -434,9 +489,9 @@ simulation:
               server_ip: 10.0.20.10
               server_password: "secret"
               payload: "WRITE"
-              port_scan_p_of_success: 0.7
-              data_manipulation_p_of_success: 0.6
-              repeat: false
+              port_scan_p_of_success: 0.9
+              data_manipulation_p_of_success: 0.9
+              repeat: true
 
           # Red app 2: DoS bot
           - type: dos-bot
@@ -444,10 +499,10 @@ simulation:
               target_ip_address: 10.0.20.10
               target_port: 502
               payload: "HTTP_FLOOD"
-              repeat: false
-              port_scan_p_of_success: 0.6
-              dos_intensity: 0.1
-              max_sessions: 50
+              repeat: true
+              port_scan_p_of_success: 0.9
+              dos_intensity: 0.5
+              max_sessions: 200
 
           # Red app 3: ransomware script
           - type: ransomware-script
@@ -507,8 +562,8 @@ simulation:
               server_ip: 10.0.20.10
               server_password: "secret"
               payload: "MODBUS_WRITE"
-              port_scan_p_of_success: 0.65
-              data_manipulation_p_of_success: 0.55
+              port_scan_p_of_success: 0.9
+              data_manipulation_p_of_success: 0.9
               repeat: false
 
     links:
