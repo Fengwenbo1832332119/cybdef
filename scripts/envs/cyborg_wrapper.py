@@ -3,6 +3,7 @@ import random
 import sys
 import time
 import importlib
+import types
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Any, Callable
 
@@ -59,13 +60,32 @@ print(
     f"{spec.origin if spec and spec.origin else 'NOT FOUND'}"
 )
 
-# === 这里才真正导入 CybORG（应该来自 Debugged_CybORG/CybORG）===
-from CybORG import CybORG
-from CybORG.Agents.SimpleAgents.Meander import RedMeanderAgent
-from CybORG.Agents.SimpleAgents.B_line import B_lineAgent
-from CybORG.Agents.SimpleAgents.BlueReactAgent import BlueReactRemoveAgent, BlueReactRestoreAgent
-from CybORG.Agents.Wrappers import EnumActionWrapper, BlueTableWrapper
+def _ensure_cyborg_deps() -> None:
+    """Stub lightweight optional CybORG dependencies if missing.
 
+    Some downstream environments (e.g., stripped Windows installs) may not
+    ship optional dependencies such as ``paramiko``. When they are absent,
+    importing CybORG fails before we can surface a helpful error. To keep the
+    wrapper importable, we insert minimal stand-ins and emit a warning. Users
+    can still install the real packages for full functionality.
+    """
+
+    missing: list[str] = []
+    for mod in ("paramiko",):
+        try:
+            importlib.import_module(mod)
+        except ModuleNotFoundError:
+            missing.append(mod)
+            sys.modules[mod] = types.SimpleNamespace()
+
+    if missing:
+        print(
+            "[cyborg_wrapper] ⚠ optional CybORG deps missing; stubbed modules: "
+            f"{missing}. Install them for full functionality."
+        )
+
+
+_ensure_cyborg_deps()
 
 from CybORG import CybORG
 from CybORG.Agents.SimpleAgents.Meander import RedMeanderAgent

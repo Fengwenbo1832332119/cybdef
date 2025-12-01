@@ -1,119 +1,125 @@
 # ICS-CSKG 强版规则（20 条）
 version: 1.0
 
-rules:
+facts:
+  - suspicious_activity
+  - nmne_detected
+  - nmne_high
+  - nmne_medium
+  - traffic_spike
+  - traffic_tcp_high
+  - traffic_udp_high
+  - traffic_icmp_high
+  - node_down
+  - critical_node_down
+  - recent_reward
+  - positive_recent_reward
+  - negative_recent_reward
 
-  # ---------------------------
-  # 1. 绿色状态：不做重扫描
-  # ---------------------------
-  - name: discourage-expensive-scan-when-healthy
-    when:
-      - FACT(positive_recent_reward) == true
-      - FACT(suspicious_activity) == false
-    prefer:
-      - NOT "router-interface-recon"
-      - NOT "router-rules-recon"
-      - NOT "node-process-recon"
+actions:
+  recon:
+    - "node-network-service-recon"
+  block:
+    - "router-acl-add-rule"
+  unblock:
+    - "router-acl-remove-rule"
+  recover:
+    - "node-startup"
+  idle:
+    - "do-nothing"
 
-  # ---------------------------
-  # 2. NMNE medium/high -> 强化 recon
-  # ---------------------------
-  - name: nmne-medium-recon
-    when:
-      - FACT(nmne_medium) == true
-    prefer:
-      - "router-interface-recon"
-      - "router-rules-recon"
+# ======================================================
+# 1) Soft mask: reasoner 只接受 alpha，不接受 value!!!
+# ======================================================
+mask_rules:
+  - name: "No-Block-When-Quiet"
+    condition: "NOT FACT('suspicious_activity')"
+    effect:
+      type: "soft_mask"
+      actions:
+        - "router-acl-add-rule"
+      alpha: 0.35     # ← 必须用 alpha，不能用 value！！！
 
-  - name: nmne-high-emergency
-    when:
-      - FACT(nmne_high) == true
-    prefer:
-      - "node-process-recon"
-      - "router-interface-recon"
+# ======================================================
+# 2) Prior rules（用 value）
+# ======================================================
+prior_rules:
+  - name: "Prefer-Recon-On-Suspicion"
+    condition: "FACT('suspicious_activity')"
+    effect:
+      actions:
+        - "node-network-service-recon"
+      value: 0.4
 
-  # ---------------------------
-  # 3. 流量 spike
-  # ---------------------------
-  - name: traffic-spike-acl-block
-    when:
-      - FACT(traffic_spike) == true
-    prefer:
-      - "router-acl-add-rule"
+  - name: "Prefer-Block-On-High-NMNE"
+    condition: "FACT('nmne_high') OR FACT('traffic_spike')"
+    effect:
+      actions:
+        - "router-acl-add-rule"
+      value: 0.5
 
-  # ---------------------------
-  # 4. 节点 down
-  # ---------------------------
-  - name: critical-node-down
-    when:
-      - FACT(critical_node_down) == true
-    prefer:
-      - "node-startup"
-      - "node-reset"
+  - name: "Prefer-Recover-When-Critical-Down"
+    condition: "FACT('critical_node_down')"
+    effect:
+      actions:
+        - "node-startup"
+      value: 0.55
 
-  - name: node-down-safe-mode
-    when:
-      - FACT(node_down) == true
-    prefer:
-      - "node-reset"
+  - name: "Prefer-Unblock-If-Stable"
+    condition: "FACT('positive_recent_reward') AND NOT FACT('suspicious_activity')"
+    effect:
+      actions:
+        - "router-acl-remove-rule"
+      value: 0.25
 
-  # ---------------------------
-  # 5. 恶意行为：DoS
-  # ---------------------------
-  - name: dos-detected-defense
-    when:
-      - FACT(dos_detected) == true
-    prefer:
-      - "router-acl-add-rule"
-      - "router-interface-recon"
+  - name: "Prefer-Recon-On-Negative-Reward"
+    condition: "FACT('negative_recent_reward')"
+    effect:
+      actions:
+        - "node-network-service-recon"
+      value: 0.25
 
-  # ---------------------------
-  # 6. 恶意行为：ransomware
-  # ---------------------------
-  - name: ransomware-detected-defense
-    when:
-      - FACT(ransomware_detected) == true
-    prefer:
-      - "node-reset"
-      - "node-process-recon"
+# ======================================================
+# 3) Reward rules（用 value）
+# ======================================================
+reward_rules:
+  - name: "Bonus-Recon-Under-Alert"
+    condition: "FACT('suspicious_activity')"
+    effect:
+      type: "add"
+      actions:
+        - "node-network-service-recon"
+      value: 0.05
 
-  # ---------------------------
-  # 7. 数据篡改
-  # ---------------------------
-  - name: data-manip-detected
-    when:
-      - FACT(manipulation_detected) == true
-    prefer:
-      - "node-process-recon"
-      - "router-interface-recon"
+  - name: "Bonus-Block-Under-High-NMNE"
+    condition: "FACT('nmne_high') OR FACT('traffic_spike')"
+    effect:
+      type: "add"
+      actions:
+        - "router-acl-add-rule"
+      value: 0.08
 
-  # ---------------------------
-  # 8. 多重威胁（组合条件）
-  # ---------------------------
-  - name: composite-threat
-    when:
-      - FACT(nmne_detected) == true
-      - FACT(traffic_spike) == true
-    prefer:
-      - "router-interface-recon"
-      - "router-rules-recon"
+  - name: "Bonus-Recover-When-Critical-Down"
+    condition: "FACT('critical_node_down')"
+    effect:
+      type: "add"
+      actions:
+        - "node-startup"
+      value: 0.12
 
-  # ---------------------------
-  # 9. reward 负 -> prefer mitigation
-  # ---------------------------
-  - name: negative-reward-mitigate
-    when:
-      - FACT(negative_recent_reward) == true
-    prefer:
-      - "node-reset"
-      - "node-startup"
+  - name: "Penalty-Idle-When-Alert"
+    condition: "FACT('suspicious_activity')"
+    effect:
+      type: "add"
+      actions:
+        - "do-nothing"
+      value: -0.06
 
-  # ---------------------------
-  # 10. mild anomaly -> light recon
-  # ---------------------------
-  - name: mild-anomaly
-    when:
-      - FACT(suspicious_activity) == true
-    prefer:
-      - "node-process-recon"
+  - name: "Bonus-Block-When-Protocol-Spike"
+    condition: "FACT('traffic_tcp_high') OR FACT('traffic_udp_high') OR FACT('traffic_icmp_high')"
+    effect:
+      type: "add"
+      actions:
+        - "router-acl-add-rule"
+      value: 0.05
 

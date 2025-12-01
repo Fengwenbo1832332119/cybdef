@@ -60,6 +60,12 @@ class PrimaiteWrapper:
         self.host_names: List[str] = []
         self.critical_hosts = set(self.CRITICAL_BY_SCENARIO.get(self.scenario, set()))
         self._load_hosts_from_config()
+        # 观测里 host 以 HOST0/HOST1... 命名，按照配置顺序做一个别名映射
+        self.host_alias: Dict[str, str] = {}
+        for idx, name in enumerate(self.host_names):
+            alias = f"host{idx}"
+            self.host_alias[alias] = name
+            self.host_alias[alias.upper()] = name
 
         # ---- 动作名（给 CSKG / Debug 用）----
         self.action_dim: int = 0
@@ -165,171 +171,170 @@ class PrimaiteWrapper:
 
     def _extract_facts(self, obs_raw: Any, reward: float = 0.0) -> Dict[str, Any]:
         """
-        ICS advanced facts（增强版）：
-        - nmne: normal / medium / high
-        - traffic: per-protocol spikes
-        - host_status: operating_status / nic_status
-        - suspicious_activity: 多条件融合
-        - connection errors / failed requests
-        - ransomware evidence / dos evidence (来自 env logs)
+        轻量版 ICS facts：
+        - recent_reward: 最近一步环境奖励
+        - positive_recent_reward: 奖励是否偏正，用于“系统稳定时”的规则
+        - suspicious_activity / nmne_* / traffic_spike / node_down / critical_node_down
+          尽量从 obs 里推一点（软规则用，不会强约束 PPO）
         """
 
-        def _to_int(val):
+        def _to_level(val: Any) -> int:
             try:
                 return int(val)
-            except:
-                return 0
+            except Exception:
+                pass
 
-        facts = {
-            "env_name": self.scenario,
+            if isinstance(val, bool):
+                return 1 if val else 0
+
+            if isinstance(val, str):
+                v = val.lower()
+                if v in {"high", "critical"}:
+                    return 3
+                if v in {"medium", "med"}:
+                    return 2
+                if v in {"low", "warn"}:
+                    return 1
+                if v in {"none", "ok", "normal"}:
+                    return 0
+            return 0
+
+        facts: Dict[str, Any] = {
             "recent_reward": float(reward),
-            "positive_recent_reward": reward > 0.05,
-            "negative_recent_reward": reward < -0.05,
-
-            # --- ICS behaviour-level facts ---
+            "positive_recent_reward": float(reward) > 0.05,
+            "negative_recent_reward": float(reward) < -0.05,
+            "suspicious_activity": False,
             "nmne_detected": False,
             "nmne_high": False,
             "nmne_medium": False,
-
             "traffic_spike": False,
             "traffic_tcp_high": False,
             "traffic_udp_high": False,
             "traffic_icmp_high": False,
-
             "node_down": False,
             "critical_node_down": False,
-            "failed_connections": 0,
-            "failed_requests": 0,
-
-            # malicious evidence
+            # 这些字段目前在 ICS obs 中没有直接对应，先占位为 False，便于规则引用
+            "failed_connections": False,
+            "failed_requests": False,
             "dos_detected": False,
             "ransomware_detected": False,
             "manipulation_detected": False,
-
-            "suspicious_activity": False,
+            "env_name": self.scenario,
         }
 
-        # =====================================================
-        # 结构恢复
-        # =====================================================
-        structured = None
+        # 尝试从 obs 里解析结构
+        structured: Optional[Any] = None
         if isinstance(obs_raw, dict):
             structured = obs_raw
-        elif isinstance(obs_raw, np.ndarray) and self.observation_space is not None:
-            try:
-                from gymnasium.spaces import unflatten
-                structured = unflatten(self.observation_space, obs_raw)
-            except:
-                pass
+        elif isinstance(obs_raw, np.ndarray):
+            # 尽量用「未 flatten 前的空间」去解包，才能解析 NMNE / 节点状态等层级字段
+            target_space = self._raw_observation_space or self.observation_space
+            if target_space is not None:
+                try:
+                    from gymnasium.spaces import unflatten
 
-        nmne_list = []
-        tcp_list = []
-        udp_list = []
-        icmp_list = []
-        node_status = {}
+                    structured = unflatten(target_space, obs_raw)
+                except Exception:
+                    structured = None
 
-        def walk(obj, path):
+        nmne_levels: List[int] = []
+        traffic_levels: List[int] = []
+        traffic_by_proto: Dict[str, List[int]] = {"tcp": [], "udp": [], "icmp": []}
+        node_statuses: Dict[str, int] = {}
+
+        def _walk(obj: Any, path: List[str]) -> None:
             if isinstance(obj, dict):
                 for k, v in obj.items():
                     key = str(k).lower()
+                    next_path = path + [str(k)]
 
-                    # --- NMNE ---
-                    if key == "nmne":
-                        if isinstance(v, dict):
-                            for vv in v.values():
-                                nmne_list.append(_to_int(vv))
+                    # nmne 结构：尝试把 value 统一成等级
+                    if key == "nmne" and isinstance(v, dict):
+                        for val in v.values():
+                            nmne_levels.append(_to_level(val))
 
-                    # --- traffic monitor ---
-                    if key == "traffic":
-                        if isinstance(v, dict):
-                            if "tcp" in v:
-                                for t in v["tcp"].values():
-                                    tcp_list.append(_to_int(t))
-                            if "udp" in v:
-                                for t in v["udp"].values():
-                                    udp_list.append(_to_int(t))
-                            if "icmp" in v:
-                                for t in v["icmp"].values():
-                                    icmp_list.append(_to_int(t))
+                    # traffic 结构：多层 dict，尽量把叶子收集进 traffic_levels
+                    if key == "traffic" and isinstance(v, dict):
+                        def _collect_traffic(x: Any, proto: Optional[str] = None):
+                            if isinstance(x, dict):
+                                for kk, vv in x.items():
+                                    next_proto = proto
+                                    kk_low = str(kk).lower()
+                                    if kk_low in traffic_by_proto:
+                                        next_proto = kk_low
+                                    _collect_traffic(vv, next_proto)
+                            else:
+                                lvl = _to_level(x)
+                                traffic_levels.append(lvl)
+                                if proto in traffic_by_proto:
+                                    traffic_by_proto[proto].append(lvl)
 
-                    # --- node state ---
+                        _collect_traffic(v)
+
+                    # 节点状态（operating_status / nic_status 之类）
                     if key in {"operating_status", "nic_status"}:
-                        host = next((h for h in self.host_names if h in path), None)
-                        if host:
-                            node_status[host] = _to_int(v)
+                        try:
+                            status_val = int(v)
+                            # 粗暴一点：如果 path 里包含某个 hostname，就记到该 host 上
+                            host_hit = next(
+                                (
+                                    alias
+                                    for seg in path + next_path
+                                    for alias in (
+                                    self.host_alias.get(seg.lower())
+                                    or self.host_alias.get(seg),
+                                )
+                                    if alias
+                                ),
+                                None,
+                            )
+                            if host_hit:
+                                node_statuses[host_hit] = status_val
+                            else:
+                                node_statuses.setdefault("*", status_val)
+                        except Exception:
+                            pass
 
-                    # --- failed connections (OT gateway / PLC / DMZ) ---
-                    if key == "connection_errors":
-                        facts["failed_connections"] += _to_int(v)
+                    _walk(v, next_path)
 
-                    if key == "failed_requests":
-                        facts["failed_requests"] += _to_int(v)
-
-                    walk(v, path + [k])
-
-            elif isinstance(obj, list):
+            elif isinstance(obj, (list, tuple)):
                 for idx, item in enumerate(obj):
-                    walk(item, path + [str(idx)])
+                    _walk(item, path + [str(idx)])
 
         if structured is not None:
-            walk(structured, [])
+            _walk(structured, [])
 
-        # =====================================================
-        # NMNE 解析
-        # =====================================================
-        if nmne_list:
-            facts["nmne_detected"] = any(v > 0 for v in nmne_list)
-            facts["nmne_medium"] = any(v >= 2 for v in nmne_list)
-            facts["nmne_high"] = any(v >= 3 for v in nmne_list)
+        # ---- nmne / traffic 逻辑 ----
+        facts["nmne_detected"] = any(level > 0 for level in nmne_levels)
+        facts["nmne_medium"] = any(level >= 1 for level in nmne_levels)
+        facts["nmne_high"] = any(level >= 2 for level in nmne_levels)
+        facts["traffic_spike"] = any(level >= 2 for level in traffic_levels)
+        facts["traffic_tcp_high"] = any(level >= 2 for level in traffic_by_proto["tcp"])
+        facts["traffic_udp_high"] = any(level >= 2 for level in traffic_by_proto["udp"])
+        facts["traffic_icmp_high"] = any(level >= 2 for level in traffic_by_proto["icmp"])
 
-        # =====================================================
-        # Traffic 解析
-        # =====================================================
-        def _spike(arr):
-            return len(arr) > 0 and max(arr) >= 2
+        # ---- 节点存活状态 ----
+        def _is_down(val: int) -> bool:
+            # 这里假设 1 = up，其余都当 down
+            return val != 1
 
-        facts["traffic_tcp_high"] = _spike(tcp_list)
-        facts["traffic_udp_high"] = _spike(udp_list)
-        facts["traffic_icmp_high"] = _spike(icmp_list)
-        facts["traffic_spike"] = (
-                facts["traffic_tcp_high"] or facts["traffic_udp_high"] or facts["traffic_icmp_high"]
+        any_down = any(_is_down(v) for v in node_statuses.values())
+        facts["node_down"] = any_down
+
+        critical_down = False
+        for host, status in node_statuses.items():
+            if host in self.critical_hosts and _is_down(status):
+                critical_down = True
+                break
+        facts["critical_node_down"] = critical_down
+
+        # 如果出现 nmne / traffic spike / 关键节点 down，就视为 "suspicious_activity"
+        facts["suspicious_activity"] = (
+                facts["nmne_detected"]
+                or facts["traffic_spike"]
+                or critical_down
+                or facts["negative_recent_reward"]
         )
-
-        # =====================================================
-        # Host DOWN 解析
-        # =====================================================
-        for host, st in node_status.items():
-            if st != 1:
-                facts["node_down"] = True
-                if host in self.critical_hosts:
-                    facts["critical_node_down"] = True
-
-        # =====================================================
-        # malicious evidence
-        # =====================================================
-        # 环境中会输出 dos / ransomware 的 console log
-        raw_str = str(obs_raw)
-        if "DoS" in raw_str or "FLOOD" in raw_str:
-            facts["dos_detected"] = True
-        if "ENCRYPT" in raw_str or "ransomware" in raw_str:
-            facts["ransomware_detected"] = True
-        if "WRITE" in raw_str and "database" in raw_str:
-            facts["manipulation_detected"] = True
-
-        # =====================================================
-        # 归纳 suspicious
-        # =====================================================
-        facts["suspicious_activity"] = any([
-            facts["negative_recent_reward"],
-            facts["nmne_detected"],
-            facts["traffic_spike"],
-            facts["failed_connections"] > 0,
-            facts["failed_requests"] > 0,
-            facts["dos_detected"],
-            facts["ransomware_detected"],
-            facts["manipulation_detected"],
-            facts["critical_node_down"],
-        ])
 
         return facts
 

@@ -16,6 +16,7 @@ MultiEnvKB: 管理多个场景的 KnowledgeBridge
 
 from __future__ import annotations
 
+import os
 import pathlib
 import sys
 from dataclasses import dataclass
@@ -48,15 +49,18 @@ class MultiEnvKB:
 
     def __init__(self, env_kbs: Dict[str, EnvKB]):
         self.env_kbs: Dict[str, EnvKB] = env_kbs
+        # CSKG_DEBUG_ENVS=cyborg,ics 用于在指定场景打印 prior/reward 调试日志
+        dbg_envs = os.getenv("CSKG_DEBUG_ENVS", "")
+        self.debug_envs = {e.strip() for e in dbg_envs.split(",") if e.strip()}
 
     # ===== 便捷构造 1：只挂 CybORG，一步到位（保留兼容） =====
     @classmethod
     def from_cyborg_only(
-        cls,
-        seed_graph_path: str | pathlib.Path,
-        cskg_path: str | pathlib.Path,
-        cyborg_action_names: List[str],
-        recent_steps: int = 10,
+            cls,
+            seed_graph_path: str | pathlib.Path,
+            cskg_path: str | pathlib.Path,
+            cyborg_action_names: List[str],
+            recent_steps: int = 10,
     ) -> "MultiEnvKB":
         kb = KnowledgeBridge(
             seed_graph_path=str(seed_graph_path),
@@ -73,9 +77,9 @@ class MultiEnvKB:
     # ===== 便捷构造 2：通用多场景（cyborg + ics 等） =====
     @classmethod
     def from_env_specs(
-        cls,
-        env_specs: Dict[str, Dict[str, Any]],
-        recent_steps: int = 10,
+            cls,
+            env_specs: Dict[str, Dict[str, Any]],
+            recent_steps: int = 10,
     ) -> "MultiEnvKB":
         """
         env_specs 结构示例：
@@ -152,10 +156,10 @@ class MultiEnvKB:
 
     # ===== 先验 logits（用于 soft prior） =====
     def prior_logits(
-        self,
-        env_name: str,
-        facts: Dict[str, Any],
-        global_act_dim: int,
+            self,
+            env_name: str,
+            facts: Dict[str, Any],
+            global_act_dim: int,
     ) -> np.ndarray:
         """
         返回一个长度 = global_act_dim 的 prior 向量：
@@ -173,11 +177,17 @@ class MultiEnvKB:
         kb = ek.kb
         act_names = ek.action_names
 
+        active_rules = []
         try:
-            prior = kb.prior_logits(facts, act_names)
+            prior_ret = kb.prior_logits(facts, act_names)
             # KnowledgeBridge.prior_logits 可能返回 (prior_vec, active_rules)
-            if isinstance(prior, (tuple, list)):
-                prior = prior[0]
+            if isinstance(prior_ret, (tuple, list)):
+                if len(prior_ret) >= 1:
+                    prior = prior_ret[0]
+                if len(prior_ret) >= 2:
+                    active_rules = prior_ret[1] or []
+            else:
+                prior = prior_ret
             prior = np.asarray(prior, dtype=np.float32)
         except Exception as e:
             print(f"[MultiEnvKB] ⚠ prior_logits 出错, env={env_name}, error={e}")
@@ -191,15 +201,25 @@ class MultiEnvKB:
         elif prior.shape[0] > global_act_dim:
             prior = prior[:global_act_dim]
 
+        if env_name in self.debug_envs:
+            if active_rules or np.any(prior != 0):
+                names = [r.get("name", "<rule>") for r in active_rules]
+                topk = np.argsort(-prior)[:5]
+                top_actions = [(act_names[i] if i < len(act_names) else str(i), float(prior[i])) for i in topk if
+                               i < len(prior)]
+                print(
+                    f"[MultiEnvKB][DEBUG prior] env={env_name} rules={names} top={top_actions} facts_keys={list(facts.keys())}"
+                )
+
         return prior
 
     # ===== 奖励塑形（step_update 封装） =====
     def shape_reward(
-        self,
-        env_name: str,
-        facts: Dict[str, Any],
-        action_idx: int,
-        env_reward: float,
+            self,
+            env_name: str,
+            facts: Dict[str, Any],
+            action_idx: int,
+            env_reward: float,
     ) -> float:
         """
         调用 KB.step_update 做奖励塑形：
@@ -220,6 +240,11 @@ class MultiEnvKB:
             else:
                 act_name = "Unknown"
             shaped = kb.step_update(facts, act_name, float(env_reward))
+            if env_name in self.debug_envs:
+                if shaped != float(env_reward):
+                    print(
+                        f"[MultiEnvKB][DEBUG reward] env={env_name} action={act_name} env_r={env_reward:.4f} shaped={shaped:.4f}"
+                    )
             return float(shaped)
         except Exception as e:
             print(f"[MultiEnvKB] ⚠ shape_reward 出错, env={env_name}, error={e}")
