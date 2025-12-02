@@ -47,6 +47,7 @@ class KnowledgeBridge:
         # 最近一个 step 的激活规则（方便 explain_decision 用）
         self._last_active_mask_rules: List[Dict[str, Any]] = []
         self._last_active_prior_rules: List[Dict[str, Any]] = []
+        self._last_active_reward_rules: List[Dict[str, Any]] = []
         self._last_prior_logits: np.ndarray | None = None
 
         # 简单读取配置
@@ -233,7 +234,7 @@ class KnowledgeBridge:
     # 3) 奖励塑形
     # ------------------------------------------------------------------
     def step_update(
-        self, facts: Dict[str, Any], action_name: str, env_reward: float
+            self, facts: Dict[str, Any], action_name: str, env_reward: float
     ) -> float:
         """
         输入：
@@ -243,8 +244,13 @@ class KnowledgeBridge:
 
         输出：
         - shaped_reward: 加上规则塑形后的 reward
+
+        额外副作用：
+        - 将本 step 命中的奖励规则保存到 self._last_active_reward_rules，
+          供后续可解释模块 / LLM 使用。
         """
         r = float(env_reward)
+        active_reward_rules: List[Dict[str, Any]] = []
 
         for rule in self.reward_rules:
             cond = rule.get("condition", "")
@@ -265,8 +271,19 @@ class KnowledgeBridge:
                 if not idxs:
                     continue
 
-            # type 可以扩展，现在都当 simple add 用
+            # 命中此规则：奖励 + val，并记录到 active_reward_rules
             r += val
+            active_reward_rules.append(
+                {
+                    "name": rule.get("name", ""),
+                    "value": val,
+                    "actions": actions if actions is not None else ["<ALL>"],
+                    "condition": cond,
+                }
+            )
+
+        # 记录本 step 生效的奖励规则，供 explain 使用
+        self._last_active_reward_rules = active_reward_rules
 
         return r
 

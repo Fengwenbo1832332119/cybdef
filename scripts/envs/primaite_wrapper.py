@@ -60,12 +60,11 @@ class PrimaiteWrapper:
         self.host_names: List[str] = []
         self.critical_hosts = set(self.CRITICAL_BY_SCENARIO.get(self.scenario, set()))
         self._load_hosts_from_config()
-        # 观测里 host 以 HOST0/HOST1... 命名，按照配置顺序做一个别名映射
+        # host alias（lowercase -> canonical），便于在 _extract_facts 里通过路径匹配
         self.host_alias: Dict[str, str] = {}
-        for idx, name in enumerate(self.host_names):
-            alias = f"host{idx}"
-            self.host_alias[alias] = name
-            self.host_alias[alias.upper()] = name
+        for name in self.host_names:
+            self.host_alias[name] = name
+            self.host_alias[name.lower()] = name
 
         # ---- 动作名（给 CSKG / Debug 用）----
         self.action_dim: int = 0
@@ -171,12 +170,18 @@ class PrimaiteWrapper:
 
     def _extract_facts(self, obs_raw: Any, reward: float = 0.0) -> Dict[str, Any]:
         """
-        轻量版 ICS facts：
-        - recent_reward: 最近一步环境奖励
-        - positive_recent_reward: 奖励是否偏正，用于“系统稳定时”的规则
-        - suspicious_activity / nmne_* / traffic_spike / node_down / critical_node_down
-          尽量从 obs 里推一点（软规则用，不会强约束 PPO）
+        轻量版 ICS facts（加上最近几步的“记忆”）：
+        - recent_reward / positive_recent_reward / negative_recent_reward
+        - nmne_* / traffic_*：用总量 + 更宽松阈值
+        - nmne_recent_* / traffic_recent_spike：短期记忆 flag，让信号更“黏”
         """
+
+        # ---- 短期记忆容器（挂在 wrapper 实例上）----
+        if not hasattr(self, "_ics_state"):
+            self._ics_state = {
+                "nmne_recent": 0,
+                "traffic_recent": 0,
+            }
 
         def _to_level(val: Any) -> int:
             try:
@@ -213,12 +218,16 @@ class PrimaiteWrapper:
             "traffic_icmp_high": False,
             "node_down": False,
             "critical_node_down": False,
-            # 这些字段目前在 ICS obs 中没有直接对应，先占位为 False，便于规则引用
-            "failed_connections": False,
-            "failed_requests": False,
+            # 计数型：允许规则用 “>0” 或 “>=阈值”
+            "failed_connections": 0,
+            "failed_requests": 0,
             "dos_detected": False,
             "ransomware_detected": False,
             "manipulation_detected": False,
+            # 新增的“近期异常” flag（下面会填值）
+            "nmne_recent_mild": False,
+            "nmne_recent_high": False,
+            "traffic_recent_spike": False,
             "env_name": self.scenario,
         }
 
@@ -227,12 +236,10 @@ class PrimaiteWrapper:
         if isinstance(obs_raw, dict):
             structured = obs_raw
         elif isinstance(obs_raw, np.ndarray):
-            # 尽量用「未 flatten 前的空间」去解包，才能解析 NMNE / 节点状态等层级字段
             target_space = self._raw_observation_space or self.observation_space
             if target_space is not None:
                 try:
                     from gymnasium.spaces import unflatten
-
                     structured = unflatten(target_space, obs_raw)
                 except Exception:
                     structured = None
@@ -248,12 +255,12 @@ class PrimaiteWrapper:
                     key = str(k).lower()
                     next_path = path + [str(k)]
 
-                    # nmne 结构：尝试把 value 统一成等级
+                    # nmne 结构：value 一般是 {'inbound': x, 'outbound': y}
                     if key == "nmne" and isinstance(v, dict):
                         for val in v.values():
                             nmne_levels.append(_to_level(val))
 
-                    # traffic 结构：多层 dict，尽量把叶子收集进 traffic_levels
+                    # traffic 结构：多层 dict，叶子是各协议/端口的计数
                     if key == "traffic" and isinstance(v, dict):
                         def _collect_traffic(x: Any, proto: Optional[str] = None):
                             if isinstance(x, dict):
@@ -273,27 +280,23 @@ class PrimaiteWrapper:
 
                     # 节点状态（operating_status / nic_status 之类）
                     if key in {"operating_status", "nic_status"}:
-                        try:
-                            status_val = int(v)
-                            # 粗暴一点：如果 path 里包含某个 hostname，就记到该 host 上
-                            host_hit = next(
-                                (
-                                    alias
-                                    for seg in path + next_path
-                                    for alias in (
-                                    self.host_alias.get(seg.lower())
-                                    or self.host_alias.get(seg),
-                                )
-                                    if alias
-                                ),
-                                None,
-                            )
-                            if host_hit:
-                                node_statuses[host_hit] = status_val
-                            else:
-                                node_statuses.setdefault("*", status_val)
-                        except Exception:
-                            pass
+                        host_hit = next(
+                            (
+                                self.host_alias.get(seg.lower())
+                                for seg in path + next_path
+                                if self.host_alias.get(seg.lower())
+                            ),
+                            None,
+                        )
+                        if host_hit:
+                            node_statuses[host_hit] = _to_level(v)
+                        else:
+                            node_statuses.setdefault("*", _to_level(v))
+
+                    if key in {"connection_errors", "failed_connections"}:
+                        facts["failed_connections"] += _to_level(v)
+                    if key == "failed_requests":
+                        facts["failed_requests"] += _to_level(v)
 
                     _walk(v, next_path)
 
@@ -304,14 +307,24 @@ class PrimaiteWrapper:
         if structured is not None:
             _walk(structured, [])
 
-        # ---- nmne / traffic 逻辑 ----
-        facts["nmne_detected"] = any(level > 0 for level in nmne_levels)
-        facts["nmne_medium"] = any(level >= 1 for level in nmne_levels)
-        facts["nmne_high"] = any(level >= 2 for level in nmne_levels)
-        facts["traffic_spike"] = any(level >= 2 for level in traffic_levels)
-        facts["traffic_tcp_high"] = any(level >= 2 for level in traffic_by_proto["tcp"])
-        facts["traffic_udp_high"] = any(level >= 2 for level in traffic_by_proto["udp"])
-        facts["traffic_icmp_high"] = any(level >= 2 for level in traffic_by_proto["icmp"])
+        # ---- nmne / traffic 逻辑：用总量 + 更宽松的阈值 ----
+        nmne_total = sum(max(0, lvl) for lvl in nmne_levels)
+        traffic_total = sum(max(0, lvl) for lvl in traffic_levels)
+        traffic_sum_by_proto = {
+            proto: sum(max(0, lvl) for lvl in lvls)
+            for proto, lvls in traffic_by_proto.items()
+        }
+
+        # 只要总量>0 就认为有检测到；total>=3 认为“偏高”
+        facts["nmne_detected"] = nmne_total > 0
+        facts["nmne_medium"] = nmne_total >= 1
+        facts["nmne_high"] = nmne_total >= 3
+
+        # 总流量>=3 认为 spike，某协议>=2 认为 high
+        facts["traffic_spike"] = traffic_total >= 3
+        facts["traffic_tcp_high"] = traffic_sum_by_proto["tcp"] >= 2
+        facts["traffic_udp_high"] = traffic_sum_by_proto["udp"] >= 2
+        facts["traffic_icmp_high"] = traffic_sum_by_proto["icmp"] >= 2
 
         # ---- 节点存活状态 ----
         def _is_down(val: int) -> bool:
@@ -328,12 +341,46 @@ class PrimaiteWrapper:
                 break
         facts["critical_node_down"] = critical_down
 
-        # 如果出现 nmne / traffic spike / 关键节点 down，就视为 "suspicious_activity"
+        # ---- 文本信号：DoS / ransomware / 写入痕迹 ----
+        raw_str = str(obs_raw).lower()
+        if "dos" in raw_str or "flood" in raw_str:
+            facts["dos_detected"] = True
+        if "encrypt" in raw_str or "ransom" in raw_str:
+            facts["ransomware_detected"] = True
+        if "write" in raw_str and ("database" in raw_str or "modbus" in raw_str):
+            facts["manipulation_detected"] = True
+
+        # ---- 短期记忆：最近几步是否持续异常 ----
+        # nmne：只要 detect 就累加，没 detect 就衰减
+        if facts["nmne_detected"]:
+            self._ics_state["nmne_recent"] = min(self._ics_state["nmne_recent"] + 1, 10)
+        else:
+            self._ics_state["nmne_recent"] = max(self._ics_state["nmne_recent"] - 1, 0)
+
+        # traffic：只要有任意 traffic>0（不管是不是 spike）就累加
+        traffic_event = traffic_total > 0
+        if traffic_event:
+            self._ics_state["traffic_recent"] = min(self._ics_state["traffic_recent"] + 1, 10)
+        else:
+            self._ics_state["traffic_recent"] = max(self._ics_state["traffic_recent"] - 1, 0)
+
+        facts["nmne_recent_mild"] = self._ics_state["nmne_recent"] >= 1
+        facts["nmne_recent_high"] = self._ics_state["nmne_recent"] >= 3
+        facts["traffic_recent_spike"] = self._ics_state["traffic_recent"] >= 2
+
+        # 如果出现 nmne / traffic spike / 关键节点 down / 负奖励 / 攻击证据，就视为 "suspicious_activity"
         facts["suspicious_activity"] = (
                 facts["nmne_detected"]
+                or facts["nmne_high"]
                 or facts["traffic_spike"]
+                or facts["traffic_recent_spike"]
                 or critical_down
                 or facts["negative_recent_reward"]
+                or facts["failed_connections"] > 0
+                or facts["failed_requests"] > 0
+                or facts["dos_detected"]
+                or facts["ransomware_detected"]
+                or facts["manipulation_detected"]
         )
 
         return facts
@@ -362,6 +409,18 @@ class PrimaiteWrapper:
         obs_raw, reward, terminated, truncated, info = self.env.step(action)
         done = bool(terminated or truncated)
 
+        # 确保 info 至少是一个 dict
+        if not isinstance(info, dict):
+            info = {}
+
+        # ★ 只增加 blue_action，完全不碰 red_actions / green_actions
+        if "blue_action" not in info:
+            try:
+                info["blue_action"] = self.get_action_name(action)
+            except Exception:
+                info["blue_action"] = f"action-{int(action)}"
+
+        # 下面是你原来的部分
         obs_vec = self._flatten_obs(obs_raw)
         facts = self._extract_facts(obs_raw, reward=float(reward))
 
@@ -372,6 +431,21 @@ class PrimaiteWrapper:
             "env_name": self.scenario,
         }
         return obs, float(reward), done, info
+
+    def get_action_name(self, idx: int) -> str:
+        """
+        给上层训练脚本 / logger 用：
+        - 如果 config 里解析到了 action_names，就用人类可读的名字；
+        - 否则退回 "action-<idx>"，至少不会报错。
+        """
+        try:
+            i = int(idx)
+        except Exception:
+            return str(idx)
+
+        if 0 <= i < len(self.action_names):
+            return self.action_names[i]
+        return f"action-{i}"
 
     def action_masks(self) -> np.ndarray:
         """

@@ -6,10 +6,13 @@ facts:
   - nmne_detected
   - nmne_high
   - nmne_medium
+  - nmne_recent_mild
+  - nmne_recent_high
   - traffic_spike
   - traffic_tcp_high
   - traffic_udp_high
   - traffic_icmp_high
+  - traffic_recent_spike
   - node_down
   - critical_node_down
   - recent_reward
@@ -79,6 +82,25 @@ prior_rules:
         - "node-network-service-recon"
       value: 0.25
 
+  - name: "ICS-NMNE-Recent-Block"
+    description: "最近持续存在 NMNE 异常时，偏向阻断动作"
+    condition: "FACT('nmne_recent_high')"
+    effect:
+      type: "prior"
+      actions:
+        - "router-acl-add-rule"
+      value: 0.4
+
+  - name: "ICS-Traffic-Recent-Recon"
+    description: "近期一直有流量活动时，偏向侦查"
+    condition: "FACT('traffic_recent_spike')"
+    effect:
+      type: "prior"
+      actions:
+        - "node-network-service-recon"
+      value: 0.3
+
+
 # ======================================================
 # 3) Reward rules（用 value）
 # ======================================================
@@ -122,4 +144,24 @@ reward_rules:
       actions:
         - "router-acl-add-rule"
       value: 0.05
+
+
+  - name: "Penalty-Idle-When-NMNE"
+    condition: "FACT('nmne_detected')"
+    effect:
+      type: "add"
+      actions:
+        - "do-nothing"
+      value: -0.08
+
+  - name: "Bonus-Recon-NMNE-Recent"
+    description: "NMNE 最近持续时，侦查动作奖励 +0.05"
+    condition: "FACT('nmne_recent_high')"
+    effect:
+      type: "add"
+      actions:
+        - "node-network-service-recon"
+      value: 0.05
+
+
 

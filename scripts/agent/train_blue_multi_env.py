@@ -57,6 +57,7 @@ import torch.optim as optim
 from torch.distributions import Categorical
 
 import pathlib
+from pathlib import Path
 
 import matplotlib
 matplotlib.use("Agg")  # 无界面后端，方便服务器/终端跑
@@ -103,7 +104,7 @@ ICS_ENV_CFG_PATH = (
 
 
 # 一个很小的系数，让先验真的很「weak」
-CSKG_PRIOR_COEF = 0.2
+CSKG_PRIOR_COEF = 0.5
 
 
 # ===== 工具函数 =====
@@ -116,7 +117,9 @@ def load_yaml(path: str | pathlib.Path) -> Dict[str, Any]:
 
 
 def to_serializable(obj):
-    """便于 json.dump：把 numpy / ndarray 转成 Python 原生类型。"""
+    """便于 json.dump：把 numpy / ndarray 等转成 Python 原生类型。
+    对于无法直接序列化的对象（比如 AgentHistoryItem），统一转成 str(...)。
+    """
     import numpy as _np
 
     if isinstance(obj, (_np.floating,)):
@@ -129,7 +132,9 @@ def to_serializable(obj):
         return [to_serializable(v) for v in obj]
     if isinstance(obj, dict):
         return {k: to_serializable(v) for k, v in obj.items()}
-    return obj
+    # fallback：任何不认识的对象 → 字符串
+    return str(obj)
+
 
 
 def to_obs_vector(obs_raw: Any) -> np.ndarray:
@@ -414,6 +419,13 @@ def main():
 
     global_step = 0
 
+    # 解释日志目录
+    explain_dir = out_dir / "ics_explain"
+    explain_dir.mkdir(exist_ok=True)
+    explain_log_path = explain_dir / "trace.jsonl"
+    explain_log_f = open(explain_log_path, "a", encoding="utf-8")
+    print(f"[ICS-EXPLAIN] logging to {explain_log_path}")
+
     # ===== 训练主循环 =====
     for upd in range(1, ppo_cfg.num_updates + 1):
         # 重置环境（MultiEnvWrapper 会内部随机选一个场景）
@@ -462,7 +474,7 @@ def main():
                     )
                     print("  prior_np[:10] =", prior_np[:10])
 
-            # === 每个场景自己的合法动作掩码 ===
+            # === 合法动作掩码 ===
             try:
                 mask_np = env.current_action_mask().astype(np.float32)
             except AttributeError:
@@ -481,9 +493,8 @@ def main():
             logp = dist.log_prob(action)
             a_idx = int(action.item())
 
-            # 与多环境交互
+            # 与多环境交互（只 step 一次）
             next_obs_raw, reward, done, info = env.step(a_idx)
-
             env_r = float(reward)
             d = bool(done)
             next_facts = (
@@ -508,53 +519,123 @@ def main():
                         f"env_r={env_r:.4f}, shaped_r={r:.4f}"
                     )
 
-            # === 每个场景自己的合法动作掩码 ===
-            try:
-                mask_np = env.current_action_mask().astype(np.float32)
-            except AttributeError:
-                mask_np = np.ones(act_dim, dtype=np.float32)
+            # === ★ LLM 可解释日志：三方动作 + CSKG 规则 ===
+            if explain_log_f is not None and cur_env_name is not None:
+                try:
+                    # 1) 蓝方动作名：优先用 info 里的 blue_action，没有就自己算一个
+                    blue_action_name = None
+                    if isinstance(info, dict):
+                        blue_action_name = info.get("blue_action")
 
-            if mask_np.size != act_dim:
-                mask_np = np.ones(act_dim, dtype=np.float32)
+                    if blue_action_name is None:
+                        try:
+                            # MultiEnvWrapper 可能有 get_action_name -> 跳到对应 wrapper
+                            if hasattr(env, "get_action_name"):
+                                blue_action_name = env.get_action_name(a_idx)
+                            else:
+                                blue_action_name = f"action-{a_idx}"
+                        except Exception:
+                            blue_action_name = f"action-{a_idx}"
 
-            mask_t = torch.from_numpy(mask_np).to(DEVICE)
-            logits = logits.clone()
-            logits[mask_t == 0] = -1e9  # 把非法动作 logit 压到极小
+                    # 2) 红 / 绿方动作：直接透传 info 的结构（你说日志里已经这样存了）
+                    red_actions = {}
+                    green_actions = {}
+                    if isinstance(info, dict):
+                        ra = info.get("red_actions")
+                        ga = info.get("green_actions")
+                        if isinstance(ra, dict):
+                            red_actions = ra
+                        if isinstance(ga, dict):
+                            green_actions = ga
 
-            # === PPO 采样 ===
-            dist = Categorical(logits=logits)
-            action = dist.sample()
-            logp = dist.log_prob(action)
+                    # 3) 最近一次 CSKG 规则触发（如果有 KB）
+                    prior_logits = None
+                    active_mask_rules = []
+                    active_prior_rules = []
+                    active_reward_rules = []
+                    if multi_kb is not None and cur_env_name is not None:
+                        kb = multi_kb.get_kb(cur_env_name)
+                        if kb is not None:
+                            prior_logits = getattr(kb, "_last_prior_logits", None)
+                            active_mask_rules = getattr(kb, "_last_active_mask_rules", []) or []
+                            active_prior_rules = getattr(kb, "_last_active_prior_rules", []) or []
+                            active_reward_rules = getattr(kb, "_last_active_reward_rules", []) or []
 
-            a_idx = int(action.item())
+                    # 4) 一点环境文本（给 LLM 看）
+                    if isinstance(next_obs_raw, dict):
+                        obs_text = str(next_obs_raw.get("raw", next_obs_raw))
+                    else:
+                        obs_text = str(next_obs_raw)
 
-            # 与多环境交互
-            next_obs_raw, reward, done, info = env.step(a_idx)
+                    ex_record = {
+                        "update": upd,
+                        "global_step": global_step,
+                        "env": cur_env_name,
+                        "timestep": steps_collected,
 
-            env_r = float(reward)  # 环境原始奖励
-            d = bool(done)
-            next_facts = next_obs_raw.get("facts", {}) if isinstance(next_obs_raw, dict) else {}
+                        # 蓝方
+                        "action_idx": a_idx,
+                        "blue_action": blue_action_name,
+                        "env_reward": env_r,
+                        "shaped_reward": r,
 
-            # === （可选）CSKG 奖励塑形，只对有 KB 的场景生效 ===
-            r = env_r
-            if multi_kb is not None and cur_env_name is not None:
-                r = multi_kb.shape_reward(
-                    env_name=cur_env_name,
-                    facts=next_facts,
-                    action_idx=a_idx,
-                    env_reward=env_r,
-                )
+                        # 事实特征
+                        "facts": next_facts,
 
-                if cur_env_name in ("cyborg", "ics") and steps_collected < 20:
-                    print("[DEBUG-ICS-FACTS]", next_facts)
-                    tag = cur_env_name.upper()
-                    print(
-                        f"[DEBUG-{tag}-CSKG][reward] upd={upd} "
-                        f"step={steps_collected} env={cur_env_name}, act={a_idx}, "
-                        f"env_r={env_r:.4f}, shaped_r={r:.4f}"
+                        # CSKG 相关
+                        "active_mask_rules": [
+                            r0.get("name", "") for r0 in active_mask_rules
+                        ],
+                        "active_prior_rules": [
+                            r0.get("name", "") for r0 in active_prior_rules
+                        ],
+                        "active_reward_rules": [
+                            {
+                                "name": rr.get("name", ""),
+                                "applied_value": rr.get("effect", {}).get(
+                                    "applied_value",
+                                    rr.get("effect", {}).get("value", 0.0),
+                                ),
+                            }
+                            for rr in active_reward_rules
+                        ],
+                        "prior_logits": (
+                            prior_logits.tolist()
+                            if isinstance(prior_logits, np.ndarray)
+                            else None
+                        ),
+
+                        # 红 / 绿方
+                        "red_actions": red_actions,
+                        "green_actions": green_actions,
+
+                        # 环境可读文本 + 原始 info（以后可以用来反查）
+                        "observation_text": obs_text,
+                        "env_info": info if isinstance(info, dict) else None,
+                    }
+
+                    explain_log_f.write(
+                        json.dumps(to_serializable(ex_record), ensure_ascii=False) + "\n"
                     )
+                    # 为了避免你看不到数据，这里强制 flush 一下
+                    if steps_collected < 5 and cur_env_name in ("ics", "cyborg"):
+                        print(
+                            "[DEBUG-EXPLAIN] wrote step",
+                            steps_collected,
+                            "env=",
+                            cur_env_name,
+                            "blue=",
+                            blue_action_name,
+                            "red=",
+                            red_actions,
+                            "green=",
+                            green_actions,
+                        )
+                    explain_log_f.flush()
+                except Exception as e:
+                    print("[DEBUG-EXPLAIN] error when logging ex_record:", e)
 
-            # buffer 记录（PPO 用的是 r = 训练信号）
+            # === PPO buffer 记录（用 r 作为训练信号） ===
             obs_buf.append(obs_vec.copy())
             act_buf.append(a_idx)
             logp_buf.append(float(logp.item()))
