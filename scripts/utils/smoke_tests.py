@@ -71,7 +71,9 @@ def _sample_action(env) -> int:
     return int(np.random.randint(0, max(int(act_dim), 1)))
 
 
-def run_single_env_smoke(env_names: Iterable[str], steps: int, episodes: int) -> None:
+def run_single_env_smoke(
+    env_names: Iterable[str], steps: int, episodes: int, fast_red: bool = False
+) -> None:
     """逐个场景跑小规模 episode，打印 raw 与归一化奖励。"""
 
     for env_name in env_names:
@@ -81,6 +83,13 @@ def run_single_env_smoke(env_names: Iterable[str], steps: int, episodes: int) ->
 
         print(f"\n===== {env_name} smoke test =====")
         make_env = ENV_REGISTRY[env_name]
+        # 可选：为了更快观察扣分，强制红队在第 1 步起手
+        prev_fast_red = os.environ.get("PRIMAITE_FORCE_FAST_RED_START")
+        if fast_red:
+            os.environ["PRIMAITE_FORCE_FAST_RED_START"] = "1"
+        elif "PRIMAITE_FORCE_FAST_RED_START" in os.environ:
+            del os.environ["PRIMAITE_FORCE_FAST_RED_START"]
+
         for ep in range(episodes):
             env = make_env()
             obs = env.reset()
@@ -90,9 +99,23 @@ def run_single_env_smoke(env_names: Iterable[str], steps: int, episodes: int) ->
             rs = getattr(env, "reward_scale", None)
             raw_total = 0.0
             norm_total = 0.0
+            min_raw = float("inf")
+            min_norm = float("inf")
+            env_label = getattr(env, "scenario", None) or getattr(env, "name", None) or env_name
             for t in range(steps):
                 a = _sample_action(env)
                 res = env.step(a)
+                if res is None:
+                    print(
+                        f"[{env_label} ep {ep} step {t}] env.step 返回 None，提前结束（请检查依赖或环境状态）"
+                    )
+                    break
+                if not isinstance(res, tuple):
+                    print(
+                        f"[{env_label} ep {ep} step {t}] env.step 返回非元组结果 {type(res)}，提前结束"
+                    )
+                    break
+
                 if len(res) == 4:
                     obs, reward, done, info = res
                 else:
@@ -107,12 +130,19 @@ def run_single_env_smoke(env_names: Iterable[str], steps: int, episodes: int) ->
 
                 mapped = info.get("mapped_action_name") if isinstance(info, dict) else None
                 intent = info.get("intent_name") if isinstance(info, dict) else None
+                env_id = info.get("env_name") if isinstance(info, dict) else env_label
+                mapped_disp = mapped if mapped is not None else "-"
+                intent_disp = intent if intent is not None else "-"
                 print(
-                    f"[ep {ep} step {t}] raw={reward:.3f}"
+                    f"[{env_id} ep {ep} step {t}] raw={reward:.3f}"
                     + (f" norm={norm:.3f}" if norm is not None else "")
-                    + (f" intent={intent}" if intent else "")
-                    + (f" action={mapped}" if mapped else "")
+                    + f" intent={intent_disp}"
+                    + f" action={mapped_disp}"
                 )
+
+                min_raw = min(min_raw, float(reward))
+                if norm is not None:
+                    min_norm = min(min_norm, float(norm))
 
                 if done:
                     break
@@ -121,12 +151,29 @@ def run_single_env_smoke(env_names: Iterable[str], steps: int, episodes: int) ->
                 f"--> episode {ep} done: raw_total={raw_total:.3f}"
                 + (f" norm_total={norm_total:.3f}" if rs else "")
             )
+            if min_raw >= 0:
+                min_norm_disp = f"{min_norm:.3f}" if min_norm < float("inf") else "n/a"
+                if rs:
+                    print(
+                        f"[hint] 全程未见负向奖励 (min_raw={min_raw:.3f}, min_norm={min_norm_disp})，"
+                        "可能红方未触发或开始步数较晚；可尝试提高 --steps（如 100）或在 YAML 中降低红方 start_step 以便尽早看到扣分。"
+                    )
+                else:
+                    print(
+                        f"[hint] 全程未见负向奖励 (min_raw={min_raw:.3f})，可能红方未触发或开始步数较晚；"
+                        "可尝试提高 --steps（如 100）或在 YAML 中降低红方 start_step 以便尽早看到扣分。"
+                    )
             if hasattr(env, "close"):
                 try:
                     env.close()
                 except Exception:
                     pass
 
+        # 恢复环境变量，避免影响后续进程
+        if prev_fast_red is None:
+            os.environ.pop("PRIMAITE_FORCE_FAST_RED_START", None)
+        else:
+            os.environ["PRIMAITE_FORCE_FAST_RED_START"] = prev_fast_red
 
 def run_multi_env_samples(num_samples: int) -> None:
     """在 MultiEnvWrapper 上打印多场景采样的奖励与动作映射。"""
@@ -144,22 +191,34 @@ def run_multi_env_samples(num_samples: int) -> None:
         else:
             action = int(np.random.randint(0, env.action_dim))
 
-        obs, reward, done, info = env.step(action)
+        res = env.step(action)
+        if res is None or not isinstance(res, tuple):
+            print(
+                f"[multi step {idx}] env.step 返回异常类型 {type(res)}，提前结束"
+            )
+            break
+
+        if len(res) == 4:
+            obs, reward, done, info = res
+        else:
+            obs, reward, terminated, truncated, info = res
+            done = bool(terminated or truncated)
         env_id = info.get("env_name") if isinstance(info, dict) else "unknown"
         norm = info.get("normalized_reward") if isinstance(info, dict) else None
         mapped = info.get("mapped_action_name") if isinstance(info, dict) else None
         intent = info.get("intent_name") if isinstance(info, dict) else None
+        mapped_disp = mapped if mapped is not None else "-"
+        intent_disp = intent if intent is not None else "-"
         print(
             f"[multi step {idx}] env={env_id} raw={reward:.3f}"
             + (f" norm={norm:.3f}" if norm is not None else "")
-            + (f" intent={intent}" if intent else "")
-            + (f" action={mapped}" if mapped else "")
+            + f" intent={intent_disp}"
+            + f" action={mapped_disp}"
         )
 
         if done:
             obs = env.reset()
             print(f"[multi] reset -> env={obs.get('env_name') if isinstance(obs, dict) else 'unknown'}")
-
     env.close()
 
 

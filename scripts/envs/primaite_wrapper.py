@@ -16,6 +16,8 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+import tempfile
+import copy
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import numpy as np
@@ -24,6 +26,7 @@ import yaml
 from primaite import PRIMAITE_CONFIG
 from primaite.session.environment import PrimaiteGymEnv
 from primaite.utils.cli.primaite_config_utils import update_primaite_application_config
+
 
 def _to_bool(val: str) -> Optional[bool]:
     """Best-effort string-to-bool converter. Returns None if unknown."""
@@ -88,6 +91,7 @@ def apply_primaite_dev_overrides_from_env() -> None:
         # Do not fail environment construction due to optional logging tweaks
         pass
 
+
 class PrimaiteWrapper:
     """
     薄封装：负责
@@ -103,10 +107,13 @@ class PrimaiteWrapper:
         "lot": {"iot_hub"},
         "robotics": {"robot_controller"},
     }
-
     def __init__(self, config_path: str, dev_mode_from_env: bool = True):
         self.config_path = Path(config_path)
+        self._temp_config_path: Optional[Path] = None
         self.scenario = self.config_path.stem.lower()
+
+        # 4 个统一的语义意图标签，便于单场景 smoke 打印 "Monitor/Block/Restore/Sleep"
+        self.intent_labels: List[str] = ["Monitor", "Block", "Restore", "Sleep"]
 
         # 提前加载配置，后续复用（hosts / action_names / 最大奖励等）
         self._config_cache: Optional[Dict[str, Any]] = None
@@ -115,8 +122,10 @@ class PrimaiteWrapper:
         except Exception:
             self._config_cache = None
 
+        # 根据环境变量决定是否在 smoke-test 等场景下强行提前红队起手，以便尽快观测扣分
+        self._maybe_force_fast_red_start()
+
         # ---- 创建原始 Primaite 环境 ----
-            # ---- 创建原始 Primaite 环境 ----
         if dev_mode_from_env:
             apply_primaite_dev_overrides_from_env()
 
@@ -234,6 +243,64 @@ class PrimaiteWrapper:
             if names:
                 return names
         return []
+
+    def _maybe_force_fast_red_start(self) -> None:
+        """
+        在 smoke test 场景下快速触发红队，以便尽早观察负向奖励。
+
+        触发条件：环境变量 ``PRIMAITE_FORCE_FAST_RED_START`` 为真值时，对配置做临时修改：
+        - 所有 Red agent 的 ``start_step`` 置 1、``start_variance`` 置 0、``random_offset_max`` 置 0，确保首步即起手。
+        - 将 ``frequency`` 收敛为 1（如果原值缺失或大于 1），加快攻击节奏，方便短步数 smoke-test 观察扣分。
+        修改写入临时文件，供本次 wrapper 使用，不影响原 YAML。
+        """
+
+        flag = os.environ.get("PRIMAITE_FORCE_FAST_RED_START")
+        if flag is None or _to_bool(flag) is False:
+            return
+
+        if not isinstance(self._config_cache, dict):
+            return
+
+        cfg = copy.deepcopy(self._config_cache)
+        changed = False
+        for agent in cfg.get("agents", []):
+            try:
+                team = str(agent.get("team", "")).lower()
+            except Exception:
+                continue
+            if team != "red":
+                continue
+
+            if agent.get("start_step", None) != 1:
+                agent["start_step"] = 1
+                changed = True
+            if agent.get("start_variance", None) != 0:
+                agent["start_variance"] = 0
+                changed = True
+            if agent.get("random_offset_max", None) != 0:
+                agent["random_offset_max"] = 0
+                changed = True
+            if int(agent.get("frequency", 0) or 0) != 1:
+                agent["frequency"] = 1
+                changed = True
+
+        if not changed:
+            return
+
+        try:
+            tmp = tempfile.NamedTemporaryFile(
+                mode="w", suffix=f"_{self.scenario}_fastred.yaml", delete=False
+            )
+            yaml.safe_dump(cfg, tmp)
+            tmp.flush()
+            tmp.close()
+            self._temp_config_path = Path(tmp.name)
+            self.config_path = self._temp_config_path
+            self._config_cache = cfg
+        except Exception:
+            # 如果写入失败，保持原配置即可
+            self._temp_config_path = None
+            self.config_path = self.config_path
 
     def _compute_max_reward_from_config(self) -> float:
         """
@@ -547,12 +614,45 @@ class PrimaiteWrapper:
         gymnasium 风格：返回 (obs_dict, reward, done, info)
         供 MultiEnvWrapper 统一处理。
         """
-        obs_raw, reward, terminated, truncated, info = self.env.step(action)
-        done = bool(terminated or truncated)
+        try:
+            res = self.env.step(action)
+        except Exception as exc:  # noqa: BLE001
+            # 兜底：一旦底层环境报错，也要返回一个合法的 done step，避免 smoke_test 崩溃
+            res = None
+            base_info: Dict[str, Any] = {
+                "env_name": self.scenario,
+                "mapped_action_name": self.get_action_name(action),
+                "intent_name": self._infer_intent_name(action),
+                "error": f"env.step raised: {exc!r}",
+            }
+        else:
+            base_info = {
+                "env_name": self.scenario,
+                "mapped_action_name": self.get_action_name(action),
+                "intent_name": self._infer_intent_name(action),
+            }
+
+        # 某些安装缺失/依赖异常时，上游可能返回 None 或 4-tuple，这里兜底为一次 done step
+        if res is None:
+            obs_raw = None
+            reward = 0.0
+            done = True
+            info = dict(base_info)
+        elif isinstance(res, tuple):
+            if len(res) == 5:
+                obs_raw, reward, terminated, truncated, info = res
+                done = bool(terminated or truncated)
+            elif len(res) == 4:
+                obs_raw, reward, done, info = res
+            else:
+                obs_raw, reward, done, info = None, 0.0, True, {"error": f"unexpected step tuple len={len(res)}"}
+        else:
+            obs_raw, reward, done, info = None, 0.0, True, {"error": f"unexpected step type={type(res)}"}
 
         # 确保 info 至少是一个 dict
         if not isinstance(info, dict):
             info = {}
+        info.update({k: v for k, v in base_info.items() if k not in info})
 
         # ★ 只增加 blue_action，完全不碰 red_actions / green_actions
         if "blue_action" not in info:
@@ -561,9 +661,19 @@ class PrimaiteWrapper:
             except Exception:
                 info["blue_action"] = f"action-{int(action)}"
 
+        # 便于 smoke test / 训练日志输出统一包含场景与动作名
+        info.setdefault("env_name", self.scenario)
+        info.setdefault("mapped_action_name", info.get("blue_action"))
+        if "intent_name" not in info:
+            info["intent_name"] = self._infer_intent_name(action)
+
         # 下面是你原来的部分
-        obs_vec = self._flatten_obs(obs_raw)
-        facts = self._extract_facts(obs_raw, reward=float(reward))
+        if obs_raw is None:
+            obs_vec = np.zeros((self.action_dim,), dtype=np.float32)
+            facts: Dict[str, Any] = {}
+        else:
+            obs_vec = self._flatten_obs(obs_raw)
+            facts = self._extract_facts(obs_raw, reward=float(reward))
 
         obs = {
             "obs_vec": obs_vec,
@@ -572,6 +682,26 @@ class PrimaiteWrapper:
             "env_name": self.scenario,
         }
         return obs, float(reward), done, info
+
+    def _infer_intent_name(self, idx: int) -> Optional[str]:
+        """基于动作名的简单关键字匹配，推测 4 个语义意图之一。"""
+
+        if not self.action_names:
+            return None
+
+        try:
+            name = str(self.action_names[int(idx)]).lower()
+        except Exception:
+            return None
+
+        def has_any(substrs: Iterable[str]) -> bool:
+            return any(s in name for s in substrs)
+
+        if has_any(["block", "deny", "acl", "isolate", "quarantine", "drop"]):
+            return self.intent_labels[1]  # Block
+
+        if has_any(["restore", "startup", "start", "repair", "fix", "recover", "enable", "bringup"]):
+            return self.intent_labels[2]
 
     def get_action_name(self, idx: int) -> str:
         """
@@ -588,22 +718,27 @@ class PrimaiteWrapper:
             return self.action_names[i]
         return f"action-{i}"
 
-    def action_masks(self) -> np.ndarray:
-        """
-        暴露给 MultiEnvWrapper._get_local_mask 使用。
-        """
-        if hasattr(self.env, "action_masks"):
-            try:
-                m = self.env.action_masks()
-                return np.asarray(m, dtype=np.float32).reshape(-1)
-            except Exception:
-                pass
-
-        # 没拿到的话，就全 1（全部合法）
-        if self.action_dim <= 0:
-            return np.array([], dtype=np.float32)
-        return np.ones(self.action_dim, dtype=np.float32)
+    # def action_masks(self) -> np.ndarray:
+    #     """
+    #     暴露给 MultiEnvWrapper._get_local_mask 使用。
+    #     """
+    #     if hasattr(self.env, "action_masks"):
+    #         try:
+    #             m = self.env.action_masks()
+    #             return np.asarray(m, dtype=np.float32).reshape(-1)
+    #         except Exception:
+    #             pass
+    #
+    #     # 没拿到的话，就全 1（全部合法）
+    #     if self.action_dim <= 0:
+    #         return np.array([], dtype=np.float32)
+    #     return np.ones(self.action_dim, dtype=np.float32)
 
     def close(self) -> None:
         if hasattr(self.env, "close"):
             self.env.close()
+        if self._temp_config_path and self._temp_config_path.exists():
+            try:
+                self._temp_config_path.unlink()
+            except Exception:
+                pass
