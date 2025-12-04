@@ -14,14 +14,79 @@ PrimaiteWrapper: 适配 PrimAITE -> 我们的多环境训练框架
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import numpy as np
 import yaml
 
+from primaite import PRIMAITE_CONFIG
 from primaite.session.environment import PrimaiteGymEnv
+from primaite.utils.cli.primaite_config_utils import update_primaite_application_config
 
+def _to_bool(val: str) -> Optional[bool]:
+    """Best-effort string-to-bool converter. Returns None if unknown."""
+
+    v = str(val).strip().lower()
+    if v in {"1", "true", "t", "yes", "y", "on"}:
+        return True
+    if v in {"0", "false", "f", "no", "n", "off"}:
+        return False
+    return None
+
+
+def apply_primaite_dev_overrides_from_env() -> None:
+    """
+    Allow training scripts to toggle PrimAITE developer logging via env vars.
+
+    Supported overrides (name -> PRIMAITE_CONFIG.developer_mode key):
+    - PRIMAITE_DEV_MODE      -> enabled
+    - PRIMAITE_SYS_LOG_LEVEL -> sys_log_level
+    - PRIMAITE_AGENT_LOG_LEVEL -> agent_log_level
+    - PRIMAITE_OUTPUT_SYS_LOGS -> output_sys_logs
+    - PRIMAITE_OUTPUT_AGENT_LOGS -> output_agent_logs
+    - PRIMAITE_OUTPUT_PCAP_LOGS -> output_pcap_logs
+    - PRIMAITE_OUTPUT_TERMINAL -> output_to_terminal
+    - PRIMAITE_OUTPUT_DIR -> output_dir
+    """
+
+    dev_cfg = PRIMAITE_CONFIG.get("developer_mode", {})
+    updates: Dict[str, Any] = {}
+
+    toggles = {
+        "PRIMAITE_DEV_MODE": "enabled",
+        "PRIMAITE_OUTPUT_SYS_LOGS": "output_sys_logs",
+        "PRIMAITE_OUTPUT_AGENT_LOGS": "output_agent_logs",
+        "PRIMAITE_OUTPUT_PCAP_LOGS": "output_pcap_logs",
+        "PRIMAITE_OUTPUT_TERMINAL": "output_to_terminal",
+    }
+
+    for env_key, cfg_key in toggles.items():
+        if env_key in os.environ:
+            parsed = _to_bool(os.environ[env_key])
+            if parsed is not None:
+                updates[cfg_key] = parsed
+
+    if "PRIMAITE_SYS_LOG_LEVEL" in os.environ:
+        updates["sys_log_level"] = os.environ["PRIMAITE_SYS_LOG_LEVEL"].upper()
+
+    if "PRIMAITE_AGENT_LOG_LEVEL" in os.environ:
+        updates["agent_log_level"] = os.environ["PRIMAITE_AGENT_LOG_LEVEL"].upper()
+
+    if "PRIMAITE_OUTPUT_DIR" in os.environ:
+        updates["output_dir"] = os.environ["PRIMAITE_OUTPUT_DIR"]
+
+    if not updates:
+        return
+
+    dev_cfg.update(updates)
+    PRIMAITE_CONFIG["developer_mode"] = dev_cfg
+    try:
+        update_primaite_application_config(config=PRIMAITE_CONFIG)
+    except Exception:
+        # Do not fail environment construction due to optional logging tweaks
+        pass
 
 class PrimaiteWrapper:
     """
@@ -34,16 +99,27 @@ class PrimaiteWrapper:
 
     # 不同场景下的关键节点（给 future: critical_node_down 用）
     CRITICAL_BY_SCENARIO = {
-        "ics": {"ot_gateway", "ot_controller", "plc_node"},
-        "lot": {"ot_controller", "plc_node", "ot_gateway"},
-        "robotics": {"robot_controller", "robot_safety_plc", "actuator_bus"},
+        "ics": {"ot_controller"},
+        "lot": {"iot_hub"},
+        "robotics": {"robot_controller"},
     }
 
-    def __init__(self, config_path: str):
+    def __init__(self, config_path: str, dev_mode_from_env: bool = True):
         self.config_path = Path(config_path)
         self.scenario = self.config_path.stem.lower()
 
+        # 提前加载配置，后续复用（hosts / action_names / 最大奖励等）
+        self._config_cache: Optional[Dict[str, Any]] = None
+        try:
+            self._config_cache = yaml.safe_load(self.config_path.read_text(encoding="utf-8"))
+        except Exception:
+            self._config_cache = None
+
         # ---- 创建原始 Primaite 环境 ----
+            # ---- 创建原始 Primaite 环境 ----
+        if dev_mode_from_env:
+            apply_primaite_dev_overrides_from_env()
+
         self.env = PrimaiteGymEnv(str(self.config_path))
 
         # 原始（未 flatten）观察空间，用于后续解包 obs_raw
@@ -69,6 +145,10 @@ class PrimaiteWrapper:
         # ---- 动作名（给 CSKG / Debug 用）----
         self.action_dim: int = 0
         self.action_names: List[str] = []
+
+        # 奖励归一化：计算理论最大奖励（正权重之和），用于跨环境统一尺度
+        self.max_reward: float = self._compute_max_reward_from_config()
+        self.reward_scale: float = self.max_reward if self.max_reward > 0 else 1.0
 
         # 先尝试从 config 直接读取蓝方 action_map（即便 gym 的 action_space 没暴露名字，也能复原顺序）
         cfg_action_names = self._load_action_names_from_config()
@@ -99,14 +179,22 @@ class PrimaiteWrapper:
         if self.action_names:
             print(f"[PrimaiteWrapper] action_names={self.action_names}")
 
+        if self.max_reward > 0:
+            print(
+                f"[PrimaiteWrapper] max_reward_from_config={self.max_reward:.4f}"
+                f" -> reward_scale={self.reward_scale:.4f}"
+            )
+
     # ------------------------------------------------------------------
     #  配置文件中把蓝方能观测到的 host 名字捞出来（后续做更细粒度 facts 可用）
     # ------------------------------------------------------------------
     def _load_hosts_from_config(self) -> None:
-        try:
-            cfg = yaml.safe_load(self.config_path.read_text(encoding="utf-8"))
-        except Exception:
-            return
+        cfg = self._config_cache
+        if not isinstance(cfg, dict):
+            try:
+                cfg = yaml.safe_load(self.config_path.read_text(encoding="utf-8"))
+            except Exception:
+                return
 
         for agent in cfg.get("agents", []):
             if str(agent.get("team", "")).upper() != "BLUE":
@@ -123,10 +211,12 @@ class PrimaiteWrapper:
 
     def _load_action_names_from_config(self) -> List[str]:
         """从场景 yaml 解析蓝方 action_map，保持 index 顺序。"""
-        try:
-            cfg = yaml.safe_load(self.config_path.read_text(encoding="utf-8"))
-        except Exception:
-            return []
+        cfg = self._config_cache
+        if not isinstance(cfg, dict):
+            try:
+                cfg = yaml.safe_load(self.config_path.read_text(encoding="utf-8"))
+            except Exception:
+                return []
 
         for agent in cfg.get("agents", []):
             if str(agent.get("team", "")).upper() != "BLUE":
@@ -144,6 +234,46 @@ class PrimaiteWrapper:
             if names:
                 return names
         return []
+
+    def _compute_max_reward_from_config(self) -> float:
+        """
+        读取配置中所有 reward_components 的正向权重之和，作为理论最大奖励。
+
+        说明：PrimAITE 的 reward 组件通常是「正向奖励 + 负向惩罚」，
+        我们只累加正权重部分，以便用于归一化（避免负权重抵消总分）。
+        """
+
+        cfg = self._config_cache
+        if not isinstance(cfg, dict):
+            try:
+                cfg = yaml.safe_load(self.config_path.read_text(encoding="utf-8"))
+            except Exception:
+                return 1.0
+
+        reward_components: List[Dict[str, Any]] = []
+
+        def _walk(obj: Any) -> None:
+            if isinstance(obj, dict):
+                for k, v in obj.items():
+                    if k == "reward_components" and isinstance(v, list):
+                        reward_components.extend(v)
+                    _walk(v)
+            elif isinstance(obj, list):
+                for item in obj:
+                    _walk(item)
+
+        _walk(cfg)
+
+        total = 0.0
+        for comp in reward_components:
+            try:
+                w = float(comp.get("weight", 0.0))
+                if w > 0:
+                    total += w
+            except Exception:
+                continue
+
+        return total if total > 0 else 1.0
 
     # ------------------------------------------------------------------
     #  obs flatten / facts 提取
@@ -209,6 +339,8 @@ class PrimaiteWrapper:
             "positive_recent_reward": float(reward) > 0.05,
             "negative_recent_reward": float(reward) < -0.05,
             "suspicious_activity": False,
+            "attack_detected": False,
+            "integrity_lost": False,
             "nmne_detected": False,
             "nmne_high": False,
             "nmne_medium": False,
@@ -298,6 +430,12 @@ class PrimaiteWrapper:
                     if key == "failed_requests":
                         facts["failed_requests"] += _to_level(v)
 
+                    # 文件健康度
+                    if key == "file_health":
+                        lvl = _to_level(v)
+                        if lvl != 1:
+                            facts["integrity_lost"] = True
+
                     _walk(v, next_path)
 
             elif isinstance(obj, (list, tuple)):
@@ -319,6 +457,7 @@ class PrimaiteWrapper:
         facts["nmne_detected"] = nmne_total > 0
         facts["nmne_medium"] = nmne_total >= 1
         facts["nmne_high"] = nmne_total >= 3
+        facts["attack_detected"] = nmne_total > 5
 
         # 总流量>=3 认为 spike，某协议>=2 认为 high
         facts["traffic_spike"] = traffic_total >= 3
@@ -381,6 +520,8 @@ class PrimaiteWrapper:
                 or facts["dos_detected"]
                 or facts["ransomware_detected"]
                 or facts["manipulation_detected"]
+                or facts["integrity_lost"]
+                or facts["attack_detected"]
         )
 
         return facts

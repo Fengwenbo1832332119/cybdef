@@ -16,9 +16,10 @@ MultiEnvWrapper: 统一 cyborg + ics + lot + robotics 多场景的环境包装�
 
 from __future__ import annotations
 
+import os
 import random
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import numpy as np
 
@@ -31,6 +32,8 @@ class _EnvSpec:
     make_fn: Callable[[], Any]
     obs_dim: int
     act_dim: int
+    reward_scale: Optional[float]
+    allow_reward_norm: bool = True
 
 
 class MultiEnvWrapper:
@@ -43,11 +46,14 @@ class MultiEnvWrapper:
         env_names: List[str] | None = None,
         weights: List[float] | None = None,
         mode: str = "train",
+        use_semantic_intents: bool = True,
     ):
         """
         :param env_names: 使用的场景列表，默认 ["cyborg", "ics", "lot", "robotics"]
         :param weights:   每个场景被采样的权重，长度与 env_names 对应
         :param mode:      目前只是占位，与 CybORGWrapper 的 mode 语义保持一致
+        :env MULTIENV_REWARD_NORM: 控制奖励归一化（none / per_env_max），默认 none。
+        注：CybORG 的分值体系本身是负向的，不做归一化处理。
         """
         if env_names is None:
             env_names = ["cyborg", "ics", "lot", "robotics"]
@@ -56,6 +62,14 @@ class MultiEnvWrapper:
         self.env_specs: Dict[str, _EnvSpec] = {}
         self.env_names: List[str] = []
         self.weights: List[float] = []
+        self.use_semantic_intents = use_semantic_intents
+        self.reward_norm_mode: str = "none"
+
+        # 支持可选的奖励归一化模式（目前：none / per_env_max）
+        # per_env_max：用子环境暴露的 reward_scale 归一化，便于跨场景把「正分 / 负分」拉到同一量级
+        self.reward_norm_mode = os.environ.get(
+            "MULTIENV_REWARD_NORM", "none"
+        ).lower()
 
         # ---- 探测 & 注册每个场景 ----
         for name in env_names:
@@ -63,8 +77,16 @@ class MultiEnvWrapper:
                 raise KeyError(f"未知场景 '{name}'，请检查 ENV_REGISTRY")
 
             make_fn = ENV_REGISTRY[name]
-            obs_dim, act_dim = self._probe_env(make_fn)
-            spec = _EnvSpec(name=name, make_fn=make_fn, obs_dim=obs_dim, act_dim=act_dim)
+            obs_dim, act_dim, reward_scale = self._probe_env(make_fn, name)
+            allow_norm = name.lower() != "cyborg"
+            spec = _EnvSpec(
+                name=name,
+                make_fn=make_fn,
+                obs_dim=obs_dim,
+                act_dim=act_dim,
+                reward_scale=reward_scale,
+                allow_reward_norm=allow_norm,
+            )
             self.env_specs[name] = spec
             self.env_names.append(name)
 
@@ -77,7 +99,11 @@ class MultiEnvWrapper:
 
         # 全局统一维度（obs / action）
         self.obs_dim: int = max(s.obs_dim for s in self.env_specs.values())
-        self.action_dim: int = max(s.act_dim for s in self.env_specs.values())
+        self.intent_dim: int = 4 if self.use_semantic_intents else None  # type: ignore
+        if self.use_semantic_intents:
+            self.action_dim = self.intent_dim  # 统一为 4 个语义意图
+        else:
+            self.action_dim = max(s.act_dim for s in self.env_specs.values())
 
         print("🔗 MultiEnvWrapper 初始化完成：")
         for n in self.env_names:
@@ -90,10 +116,14 @@ class MultiEnvWrapper:
         self._cur_spec: _EnvSpec | None = None
         self._cur_step = 0
         self._last_mask: np.ndarray | None = None
+        self._active_intent_map: List[int] | None = None
+        self._active_action_names: List[str] | None = None
 
     # ---------- 内部工具 ----------
 
-    def _probe_env(self, make_fn: Callable[[], Any]) -> Tuple[int, int]:
+    def _probe_env(
+            self, make_fn: Callable[[], Any], env_name: str
+    ) -> Tuple[int, int, Optional[float]]:
         """
         启动一个 env 实例，reset 一次，自动探测 obs_dim / act_dim，然后关闭。
         """
@@ -131,7 +161,17 @@ class MultiEnvWrapper:
             except Exception:
                 pass
 
-        return obs_dim, act_dim
+        rs_val = getattr(env, "reward_scale", None)
+        reward_scale: Optional[float]
+        if rs_val is None:
+            reward_scale = None
+        else:
+            try:
+                reward_scale = float(rs_val)
+            except (TypeError, ValueError):
+                reward_scale = None
+
+        return obs_dim, act_dim, reward_scale
 
     def _pad_obs(self, obs_vec: np.ndarray) -> np.ndarray:
         """
@@ -177,7 +217,6 @@ class MultiEnvWrapper:
             self._last_mask = fallback
             return fallback.copy()
 
-
     def _build_global_mask(self, local_mask: np.ndarray, local_act_dim: int) -> np.ndarray:
         """
         将子环境的合法掩码扩展为全局掩码：
@@ -192,6 +231,87 @@ class MultiEnvWrapper:
         if g.sum() <= 0:
             g[0] = 1.0
         return g
+
+    def _intent_mask_from_local(
+            self, local_mask: np.ndarray, intent_map: List[int], default: float = 0.0
+    ) -> np.ndarray:
+        """
+        将子环境合法掩码映射到语义意图掩码：
+        - intent i 对应 local action intent_map[i]
+        - 如果 local_mask 不可用则默认全 1
+        """
+
+        if local_mask is None:
+            return np.ones(len(intent_map), dtype=np.float32) * default
+
+        out = np.zeros(len(intent_map), dtype=np.float32)
+        for i, local_idx in enumerate(intent_map):
+            if 0 <= local_idx < local_mask.shape[0]:
+                out[i] = float(local_mask[local_idx])
+            else:
+                out[i] = default
+
+        # 至少保留一个动作合法
+        if out.sum() <= 0:
+            out[0] = 1.0
+        return out
+
+    def _build_intent_map(self, env_name: str, env_obj: Any) -> List[int] | None:
+        """
+        针对不同场景，硬编码 4 个语义动作 -> 具体动作 idx：
+        0: Monitor   1: Block   2: Restore   3: Sleep
+        """
+
+        if not self.use_semantic_intents:
+            return None
+
+        names = self._extract_action_names(env_obj)
+        if names:
+            def _find(substrs, default_idx: int = 0) -> int:
+                for idx, nm in enumerate(names):
+                    if any(s in nm for s in substrs):
+                        return idx
+                return default_idx
+
+            monitor = _find(["investigate", "analyse", "analyze", "monitor", "scan"], 0)
+            block = _find(["remove", "block", "isolate", "acl", "deny"], monitor)
+            restore = _find(["restore", "startup", "start"], monitor)
+            sleep = _find(["sleep", "noop", "none", "idle"], monitor)
+            # 同时缓存动作名，方便 step 时打印语义映射
+            self._active_action_names = names
+            return [monitor, block, restore, sleep]
+
+        # 最后兜底：部分场景保留旧的硬编码索引
+        primaite_maps: Dict[str, List[int]] = {
+            "ics": [6, 2, 5, 0],
+            "lot": [6, 2, 5, 0],
+            "robotics": [6, 2, 5, 0],
+        }
+        return primaite_maps.get(env_name)
+
+    def _extract_action_names(self, env_obj: Any) -> List[str]:
+        """尽量从 wrapper / action_space 中提取动作名，用于语义映射。"""
+
+        # 先看 wrapper 是否直接提供了 action_names
+        for attr in ("action_names", "get_action_names"):
+            if hasattr(env_obj, attr):
+                try:
+                    names = getattr(env_obj, attr)
+                    names = names() if callable(names) else names
+                    if isinstance(names, (list, tuple)):
+                        return [str(n).lower() for n in names]
+                except Exception:
+                    pass
+
+        # 其次尝试从 action_space.names 提取
+        try:
+            names = getattr(getattr(env_obj, "action_space", None), "names", [])
+            if names:
+                return [str(n).lower() for n in names]
+        except Exception:
+            pass
+
+        return []
 
     def _ensure_env(self):
         if self._cur_env is None or self._cur_spec is None:
@@ -232,6 +352,9 @@ class MultiEnvWrapper:
         spec = self.env_specs[env_name]
         env = spec.make_fn()
 
+        self._active_action_names = self._extract_action_names(env)
+        self._active_intent_map = self._build_intent_map(env_name, env)
+
         self._cur_env = env
         self._cur_spec = spec
 
@@ -254,7 +377,10 @@ class MultiEnvWrapper:
         # 初始化合法掩码
         local_act_dim = spec.act_dim
         local_mask = self._get_local_mask()
-        global_mask = self._build_global_mask(local_mask, local_act_dim)
+        if self._active_intent_map is not None:
+            global_mask = self._intent_mask_from_local(local_mask, self._active_intent_map)
+        else:
+            global_mask = self._build_global_mask(local_mask, local_act_dim)
         self._last_mask = global_mask
 
         # facts 加上 env_name 信息
@@ -303,7 +429,10 @@ class MultiEnvWrapper:
         if self._last_mask is None:
             # lazily 再算一次
             local_mask = self._get_local_mask()
-            self._last_mask = self._build_global_mask(local_mask, self._cur_spec.act_dim)
+            if self._active_intent_map is not None:
+                self._last_mask = self._intent_mask_from_local(local_mask, self._active_intent_map)
+            else:
+                self._last_mask = self._build_global_mask(local_mask, self._cur_spec.act_dim)
         return self._last_mask
 
     def step(self, action_idx: int):
@@ -322,10 +451,26 @@ class MultiEnvWrapper:
         # 确保是 int
         a_global = int(action_idx)
         # 映射到局部动作空间
-        if a_global < 0 or a_global >= spec.act_dim:
-            a_local = 0
+        intent_map = self._active_intent_map
+        mapped_action_name: Optional[str] = None
+        intent_name: Optional[str] = None
+
+        if intent_map is not None:
+            if a_global < 0 or a_global >= len(intent_map):
+                a_local = intent_map[0]
+            else:
+                a_local = intent_map[a_global]
+            if 0 <= a_global < len(self.intent_labels):
+                intent_name = self.intent_labels[a_global]
+            if self._active_action_names and 0 <= a_local < len(self._active_action_names):
+                mapped_action_name = self._active_action_names[a_local]
         else:
-            a_local = a_global
+            if a_global < 0 or a_global >= spec.act_dim:
+                a_local = 0
+            else:
+                a_local = a_global
+            if self._active_action_names and 0 <= a_local < len(self._active_action_names):
+                mapped_action_name = self._active_action_names[a_local]
 
         # 调用子环境 step
         res = env.step(a_local)
@@ -359,21 +504,34 @@ class MultiEnvWrapper:
 
         # 更新合法掩码
         local_mask = info.get("legal_mask", self._get_local_mask())
-        global_mask = self._build_global_mask(local_mask, spec.act_dim)
+        if intent_map is not None:
+            global_mask = self._intent_mask_from_local(local_mask, intent_map)
+        else:
+            global_mask = self._build_global_mask(local_mask, spec.act_dim)
         self._last_mask = global_mask
 
         info_out = dict(info)
         info_out["env_name"] = spec.name
         info_out["legal_mask"] = global_mask
         info_out["local_act_dim"] = spec.act_dim
+        info_out["local_action_idx"] = int(a_local)
+        info_out["global_action_idx"] = int(a_global)
+        if intent_name is not None:
+            info_out["intent_name"] = intent_name
+        if mapped_action_name is not None:
+            info_out["mapped_action_name"] = mapped_action_name
 
-        obs = {
-            "obs_vec": obs_vec,
-            "facts": facts,
-            "raw": raw,
-            "env_name": spec.name,
-        }
-        return obs, float(reward), bool(done), info_out
+        reward = float(reward)
+        info_out["raw_reward"] = reward
+
+        if (
+                self.reward_norm_mode == "per_env_max"
+                and spec.allow_reward_norm
+                and spec.reward_scale
+        ):
+            reward = reward / max(spec.reward_scale, 1e-6)
+            info_out["reward_scale"] = spec.reward_scale
+            info_out["normalized_reward"] = reward
 
     def close(self):
         if self._cur_env is not None and hasattr(self._cur_env, "close"):
@@ -385,3 +543,4 @@ class MultiEnvWrapper:
         self._cur_spec = None
         self._last_mask = None
         self._cur_step = 0
+        self._active_intent_map = None

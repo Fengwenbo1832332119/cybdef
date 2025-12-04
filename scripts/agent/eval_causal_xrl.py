@@ -31,7 +31,7 @@ for p in (ROOT, THIRD):
         sys.path.insert(0, str(p))
 
 import yaml  # noqa: E402
-from scripts.agent.train_causal_xrl import (  # noqa: E402
+from scripts.legacy.train_causal_xrl import (  # noqa: E402
     MultiHeadActorCritic,
     extract_graph,
     to_obs_vector,

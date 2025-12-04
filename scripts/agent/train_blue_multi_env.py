@@ -337,7 +337,7 @@ def main():
     # --- 初始化 MultiEnvWrapper ---
     env = MultiEnvWrapper(
         env_names=["cyborg", "ics", "lot", "robotics"],
-        weights=[0.0, 1.0, 0.0, 0.0],  # 这里其实是只训练 ICS，你后面可以再调
+        weights=[0.25, 0.25, 0.25, 0.25],  # 这里其实是只训练 ICS，你后面可以再调
         mode="train",
     )
 

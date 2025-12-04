@@ -2,7 +2,7 @@
 B2：PPO + CSKG + RAG 解释 训练入口
 """
 from pathlib import Path
-from scripts.agent.train_ppo_cskg  import main
+from scripts.legacy.train_ppo_cskg import main
 
 
 def cli():

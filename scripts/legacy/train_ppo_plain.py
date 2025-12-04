@@ -2,7 +2,7 @@
 B0：纯 PPO 训练入口，复用 train_ppo_cskg.py 主循环
 """
 from pathlib import Path
-from scripts.agent.train_ppo_cskg  import main
+from scripts.legacy.train_ppo_cskg import main
 
 
 def cli():
