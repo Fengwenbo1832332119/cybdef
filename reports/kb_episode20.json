@@ -1,0 +1,972 @@
+[
+  {
+    "id": "ep20_step1_step1_fact_recent_reward",
+    "text": "Recent environment reward is 0.0.",
+    "source": "env_facts",
+    "citation": "env://episode20/step1/recent_reward",
+    "score": 0.5,
+    "episode": 20,
+    "step": 1,
+    "kind": "fact"
+  },
+  {
+    "id": "ep20_step1_step1_target_Enterprise1",
+    "text": "Current blue action targets host Enterprise1 (enterprise_server with criticality=3)",
+    "source": "blue_action",
+    "citation": "env://episode20/step1/action_target",
+    "score": 0.9,
+    "episode": 20,
+    "step": 1,
+    "kind": "mixed"
+  },
+  {
+    "id": "ep20_step1_seed_host_Enterprise1",
+    "text": "Enterprise1 is a enterprise_server with criticality=3 in subnet_enterprise.",
+    "source": "seed_graph",
+    "citation": "seed://host/Enterprise1",
+    "score": 1.0,
+    "episode": 20,
+    "step": 1,
+    "kind": "mixed"
+  },
+  {
+    "id": "ep20_step1_seed_path_User2_Enterprise1",
+    "text": "User2 can reach Enterprise1 (relation: reachable).",
+    "source": "seed_graph",
+    "citation": "seed://path/User2->Enterprise1",
+    "score": 0.9,
+    "episode": 20,
+    "step": 1,
+    "kind": "mixed"
+  },
+  {
+    "id": "ep20_step1_seed_path_User3_Enterprise1",
+    "text": "User3 can reach Enterprise1 (relation: reachable).",
+    "source": "seed_graph",
+    "citation": "seed://path/User3->Enterprise1",
+    "score": 0.9,
+    "episode": 20,
+    "step": 1,
+    "kind": "mixed"
+  },
+  {
+    "id": "ep20_step1_seed_path_Enterprise1_Op_Server0",
+    "text": "Enterprise1 can reach Op_Server0 (relation: reachable).",
+    "source": "seed_graph",
+    "citation": "seed://path/Enterprise1->Op_Server0",
+    "score": 1.0,
+    "episode": 20,
+    "step": 1,
+    "kind": "mixed"
+  },
+  {
+    "id": "ep20_step1_rule_Avoid-Remove-Decoy-When-Quiet",
+    "text": "Rule 'Avoid-Remove-Decoy-When-Quiet' with condition NOT FACT('suspicious_activity') AND NOT FACT('host_compromised') is active and applies a hard_mask on actions ['RemoveMalware', 'RemoveMalware_Defender', 'RemoveMalware_Enterprise0', 'RemoveMalware_Enterprise1', 'RemoveMalware_Enterprise2', 'RemoveMalware_Op_Host0', 'RemoveMalware_Op_Host1', 'RemoveMalware_Op_Host2', 'RemoveMalware_Op_Server0', 'RemoveMalware_User0', 'RemoveMalware_User1', 'RemoveMalware_User2', 'RemoveMalware_User3', 'RemoveMalware_User4', 'DecoyApache', 'DecoyFemitter', 'DecoyHarakaSMPT', 'DecoySmss', 'DecoySSHD', 'DecoySvchost', 'DecoyTomcat', 'DecoyVsftpd'].",
+    "source": "cskg_rules",
+    "citation": "cskg://rule/Avoid-Remove-Decoy-When-Quiet",
+    "score": 0.8,
+    "episode": 20,
+    "step": 1,
+    "kind": "rule"
+  },
+  {
+    "id": "ep20_step1_rule_Prefer-Monitor-When-Quiet",
+    "text": "Rule 'Prefer-Monitor-When-Quiet' with condition NOT FACT('suspicious_activity') AND NOT FACT('host_compromised') increases priority of actions ['MonitorTraffic'] by 0.4.",
+    "source": "cskg_rules",
+    "citation": "cskg://rule/Prefer-Monitor-When-Quiet",
+    "score": 0.8,
+    "episode": 20,
+    "step": 1,
+    "kind": "rule"
+  },
+  {
+    "id": "ep20_step1_rule_Deprioritize-Restore-When-Quiet",
+    "text": "Rule 'Deprioritize-Restore-When-Quiet' with condition NOT FACT('suspicious_activity') AND NOT FACT('host_compromised') increases priority of actions ['RestoreService', 'RestoreService_Enterprise0', 'RestoreService_Enterprise1', 'RestoreService_Enterprise2', 'RestoreService_Op_Server0'] by -0.4.",
+    "source": "cskg_rules",
+    "citation": "cskg://rule/Deprioritize-Restore-When-Quiet",
+    "score": 0.8,
+    "episode": 20,
+    "step": 1,
+    "kind": "rule"
+  },
+  {
+    "id": "ep20_step1_step1_rec_MonitorTraffic",
+    "text": "Recommended action from prior rules: MonitorTraffic with priority=0.4000000059604645.",
+    "source": "cskg_prior",
+    "citation": "env://episode20/step1/recommended_actions",
+    "score": 0.7,
+    "episode": 20,
+    "step": 1,
+    "kind": "recommendation"
+  },
+  {
+    "id": "ep20_step1_action",
+    "text": "At episode 20, step 1, blue executed action InvestigateHost_Enterprise1 (idx=4).",
+    "source": "blue_action",
+    "citation": "env://episode20/step1/action",
+    "score": 0.9,
+    "episode": 20,
+    "step": 1,
+    "kind": "blue_action"
+  },
+  {
+    "id": "ep20_step2_step2_fact_recent_reward",
+    "text": "Recent environment reward is 0.0.",
+    "source": "env_facts",
+    "citation": "env://episode20/step2/recent_reward",
+    "score": 0.5,
+    "episode": 20,
+    "step": 2,
+    "kind": "fact"
+  },
+  {
+    "id": "ep20_step2_rule_Avoid-Remove-Decoy-When-Quiet",
+    "text": "Rule 'Avoid-Remove-Decoy-When-Quiet' with condition NOT FACT('suspicious_activity') AND NOT FACT('host_compromised') is active and applies a hard_mask on actions ['RemoveMalware', 'RemoveMalware_Defender', 'RemoveMalware_Enterprise0', 'RemoveMalware_Enterprise1', 'RemoveMalware_Enterprise2', 'RemoveMalware_Op_Host0', 'RemoveMalware_Op_Host1', 'RemoveMalware_Op_Host2', 'RemoveMalware_Op_Server0', 'RemoveMalware_User0', 'RemoveMalware_User1', 'RemoveMalware_User2', 'RemoveMalware_User3', 'RemoveMalware_User4', 'DecoyApache', 'DecoyFemitter', 'DecoyHarakaSMPT', 'DecoySmss', 'DecoySSHD', 'DecoySvchost', 'DecoyTomcat', 'DecoyVsftpd'].",
+    "source": "cskg_rules",
+    "citation": "cskg://rule/Avoid-Remove-Decoy-When-Quiet",
+    "score": 0.8,
+    "episode": 20,
+    "step": 2,
+    "kind": "rule"
+  },
+  {
+    "id": "ep20_step2_rule_Prefer-Monitor-When-Quiet",
+    "text": "Rule 'Prefer-Monitor-When-Quiet' with condition NOT FACT('suspicious_activity') AND NOT FACT('host_compromised') increases priority of actions ['MonitorTraffic'] by 0.4.",
+    "source": "cskg_rules",
+    "citation": "cskg://rule/Prefer-Monitor-When-Quiet",
+    "score": 0.8,
+    "episode": 20,
+    "step": 2,
+    "kind": "rule"
+  },
+  {
+    "id": "ep20_step2_rule_Deprioritize-Restore-When-Quiet",
+    "text": "Rule 'Deprioritize-Restore-When-Quiet' with condition NOT FACT('suspicious_activity') AND NOT FACT('host_compromised') increases priority of actions ['RestoreService', 'RestoreService_Enterprise0', 'RestoreService_Enterprise1', 'RestoreService_Enterprise2', 'RestoreService_Op_Server0'] by -0.4.",
+    "source": "cskg_rules",
+    "citation": "cskg://rule/Deprioritize-Restore-When-Quiet",
+    "score": 0.8,
+    "episode": 20,
+    "step": 2,
+    "kind": "rule"
+  },
+  {
+    "id": "ep20_step2_step2_rec_MonitorTraffic",
+    "text": "Recommended action from prior rules: MonitorTraffic with priority=0.4000000059604645.",
+    "source": "cskg_prior",
+    "citation": "env://episode20/step2/recommended_actions",
+    "score": 0.7,
+    "episode": 20,
+    "step": 2,
+    "kind": "recommendation"
+  },
+  {
+    "id": "ep20_step2_action",
+    "text": "At episode 20, step 2, blue executed action InvestigateHost_Op_Server0 (idx=9).",
+    "source": "blue_action",
+    "citation": "env://episode20/step2/action",
+    "score": 0.9,
+    "episode": 20,
+    "step": 2,
+    "kind": "blue_action"
+  },
+  {
+    "id": "ep20_step3_step3_fact_suspicious",
+    "text": "Suspicious activity has been detected (episode=20, step=3).",
+    "source": "env_facts",
+    "citation": "env://episode20/step3/suspicious_activity",
+    "score": 0.9,
+    "episode": 20,
+    "step": 3,
+    "kind": "fact"
+  },
+  {
+    "id": "ep20_step3_step3_fact_host_discovered",
+    "text": "At least one host has been discovered by Blue.",
+    "source": "env_facts",
+    "citation": "env://episode20/step3/host_discovered",
+    "score": 0.7,
+    "episode": 20,
+    "step": 3,
+    "kind": "fact"
+  },
+  {
+    "id": "ep20_step3_step3_fact_recent_reward",
+    "text": "Recent environment reward is 0.0.",
+    "source": "env_facts",
+    "citation": "env://episode20/step3/recent_reward",
+    "score": 0.5,
+    "episode": 20,
+    "step": 3,
+    "kind": "fact"
+  },
+  {
+    "id": "ep20_step3_step3_target_User2",
+    "text": "Current blue action targets host User2 (user_host with criticality=1)",
+    "source": "blue_action",
+    "citation": "env://episode20/step3/action_target",
+    "score": 0.9,
+    "episode": 20,
+    "step": 3,
+    "kind": "mixed"
+  },
+  {
+    "id": "ep20_step3_seed_host_User2",
+    "text": "User2 is a user_host with criticality=1 in subnet_user.",
+    "source": "seed_graph",
+    "citation": "seed://host/User2",
+    "score": 1.0,
+    "episode": 20,
+    "step": 3,
+    "kind": "mixed"
+  },
+  {
+    "id": "ep20_step3_seed_path_User2_Enterprise1",
+    "text": "User2 can reach Enterprise1 (relation: reachable).",
+    "source": "seed_graph",
+    "citation": "seed://path/User2->Enterprise1",
+    "score": 1.0,
+    "episode": 20,
+    "step": 3,
+    "kind": "mixed"
+  },
+  {
+    "id": "ep20_step3_rule_No-Sleep-Under-Suspicion",
+    "text": "Rule 'No-Sleep-Under-Suspicion' with condition FACT('suspicious_activity') OR FACT('host_compromised') OR FACT('high_risk_state') is active and applies a hard_mask on actions ['Sleep'].",
+    "source": "cskg_rules",
+    "citation": "cskg://rule/No-Sleep-Under-Suspicion",
+    "score": 0.8,
+    "episode": 20,
+    "step": 3,
+    "kind": "rule"
+  },
+  {
+    "id": "ep20_step3_rule_Prefer-Investigate-On-Suspicion",
+    "text": "Rule 'Prefer-Investigate-On-Suspicion' with condition FACT('suspicious_activity') AND NOT FACT('host_compromised') increases priority of actions ['InvestigateHost'] by 0.7.",
+    "source": "cskg_rules",
+    "citation": "cskg://rule/Prefer-Investigate-On-Suspicion",
+    "score": 0.8,
+    "episode": 20,
+    "step": 3,
+    "kind": "rule"
+  },
+  {
+    "id": "ep20_step3_rule_Prefer-Decoy-Under-Suspicion",
+    "text": "Rule 'Prefer-Decoy-Under-Suspicion' with condition FACT('suspicious_activity') increases priority of actions ['DecoyApache', 'DecoyFemitter', 'DecoyHarakaSMPT', 'DecoySmss', 'DecoySSHD', 'DecoySvchost', 'DecoyTomcat', 'DecoyVsftpd'] by 0.22.",
+    "source": "cskg_rules",
+    "citation": "cskg://rule/Prefer-Decoy-Under-Suspicion",
+    "score": 0.8,
+    "episode": 20,
+    "step": 3,
+    "kind": "rule"
+  },
+  {
+    "id": "ep20_step3_rule_Investigate-Priority-Over-Decoy",
+    "text": "Rule 'Investigate-Priority-Over-Decoy' with condition FACT('suspicious_activity') AND NOT FACT('host_compromised') increases priority of actions ['InvestigateHost'] by 0.4.",
+    "source": "cskg_rules",
+    "citation": "cskg://rule/Investigate-Priority-Over-Decoy",
+    "score": 0.8,
+    "episode": 20,
+    "step": 3,
+    "kind": "rule"
+  },
+  {
+    "id": "ep20_step3_step3_rec_InvestigateHost_User4",
+    "text": "Recommended action from prior rules: InvestigateHost_User4 with priority=1.100000023841858.",
+    "source": "cskg_prior",
+    "citation": "env://episode20/step3/recommended_actions",
+    "score": 0.7,
+    "episode": 20,
+    "step": 3,
+    "kind": "recommendation"
+  },
+  {
+    "id": "ep20_step3_step3_rec_InvestigateHost_Op_Host1",
+    "text": "Recommended action from prior rules: InvestigateHost_Op_Host1 with priority=1.100000023841858.",
+    "source": "cskg_prior",
+    "citation": "env://episode20/step3/recommended_actions",
+    "score": 0.7,
+    "episode": 20,
+    "step": 3,
+    "kind": "recommendation"
+  },
+  {
+    "id": "ep20_step3_step3_rec_InvestigateHost_UnknownHost",
+    "text": "Recommended action from prior rules: InvestigateHost_UnknownHost with priority=1.100000023841858.",
+    "source": "cskg_prior",
+    "citation": "env://episode20/step3/recommended_actions",
+    "score": 0.7,
+    "episode": 20,
+    "step": 3,
+    "kind": "recommendation"
+  },
+  {
+    "id": "ep20_step3_action",
+    "text": "At episode 20, step 3, blue executed action DecoySSHD_User2 (idx=108).",
+    "source": "blue_action",
+    "citation": "env://episode20/step3/action",
+    "score": 0.9,
+    "episode": 20,
+    "step": 3,
+    "kind": "blue_action"
+  },
+  {
+    "id": "ep20_step4_step4_fact_suspicious",
+    "text": "Suspicious activity has been detected (episode=20, step=4).",
+    "source": "env_facts",
+    "citation": "env://episode20/step4/suspicious_activity",
+    "score": 0.9,
+    "episode": 20,
+    "step": 4,
+    "kind": "fact"
+  },
+  {
+    "id": "ep20_step4_step4_fact_host_discovered",
+    "text": "At least one host has been discovered by Blue.",
+    "source": "env_facts",
+    "citation": "env://episode20/step4/host_discovered",
+    "score": 0.7,
+    "episode": 20,
+    "step": 4,
+    "kind": "fact"
+  },
+  {
+    "id": "ep20_step4_step4_fact_recent_reward",
+    "text": "Recent environment reward is 0.0.",
+    "source": "env_facts",
+    "citation": "env://episode20/step4/recent_reward",
+    "score": 0.5,
+    "episode": 20,
+    "step": 4,
+    "kind": "fact"
+  },
+  {
+    "id": "ep20_step4_step4_target_Enterprise1",
+    "text": "Current blue action targets host Enterprise1 (enterprise_server with criticality=3)",
+    "source": "blue_action",
+    "citation": "env://episode20/step4/action_target",
+    "score": 0.9,
+    "episode": 20,
+    "step": 4,
+    "kind": "mixed"
+  },
+  {
+    "id": "ep20_step4_seed_host_Enterprise1",
+    "text": "Enterprise1 is a enterprise_server with criticality=3 in subnet_enterprise.",
+    "source": "seed_graph",
+    "citation": "seed://host/Enterprise1",
+    "score": 1.0,
+    "episode": 20,
+    "step": 4,
+    "kind": "mixed"
+  },
+  {
+    "id": "ep20_step4_seed_path_User2_Enterprise1",
+    "text": "User2 can reach Enterprise1 (relation: reachable).",
+    "source": "seed_graph",
+    "citation": "seed://path/User2->Enterprise1",
+    "score": 0.9,
+    "episode": 20,
+    "step": 4,
+    "kind": "mixed"
+  },
+  {
+    "id": "ep20_step4_seed_path_User3_Enterprise1",
+    "text": "User3 can reach Enterprise1 (relation: reachable).",
+    "source": "seed_graph",
+    "citation": "seed://path/User3->Enterprise1",
+    "score": 0.9,
+    "episode": 20,
+    "step": 4,
+    "kind": "mixed"
+  },
+  {
+    "id": "ep20_step4_seed_path_Enterprise1_Op_Server0",
+    "text": "Enterprise1 can reach Op_Server0 (relation: reachable).",
+    "source": "seed_graph",
+    "citation": "seed://path/Enterprise1->Op_Server0",
+    "score": 1.0,
+    "episode": 20,
+    "step": 4,
+    "kind": "mixed"
+  },
+  {
+    "id": "ep20_step4_rule_No-Sleep-Under-Suspicion",
+    "text": "Rule 'No-Sleep-Under-Suspicion' with condition FACT('suspicious_activity') OR FACT('host_compromised') OR FACT('high_risk_state') is active and applies a hard_mask on actions ['Sleep'].",
+    "source": "cskg_rules",
+    "citation": "cskg://rule/No-Sleep-Under-Suspicion",
+    "score": 0.8,
+    "episode": 20,
+    "step": 4,
+    "kind": "rule"
+  },
+  {
+    "id": "ep20_step4_rule_Prefer-Investigate-On-Suspicion",
+    "text": "Rule 'Prefer-Investigate-On-Suspicion' with condition FACT('suspicious_activity') AND NOT FACT('host_compromised') increases priority of actions ['InvestigateHost'] by 0.7.",
+    "source": "cskg_rules",
+    "citation": "cskg://rule/Prefer-Investigate-On-Suspicion",
+    "score": 0.8,
+    "episode": 20,
+    "step": 4,
+    "kind": "rule"
+  },
+  {
+    "id": "ep20_step4_rule_Prefer-Decoy-Under-Suspicion",
+    "text": "Rule 'Prefer-Decoy-Under-Suspicion' with condition FACT('suspicious_activity') increases priority of actions ['DecoyApache', 'DecoyFemitter', 'DecoyHarakaSMPT', 'DecoySmss', 'DecoySSHD', 'DecoySvchost', 'DecoyTomcat', 'DecoyVsftpd'] by 0.22.",
+    "source": "cskg_rules",
+    "citation": "cskg://rule/Prefer-Decoy-Under-Suspicion",
+    "score": 0.8,
+    "episode": 20,
+    "step": 4,
+    "kind": "rule"
+  },
+  {
+    "id": "ep20_step4_rule_Investigate-Priority-Over-Decoy",
+    "text": "Rule 'Investigate-Priority-Over-Decoy' with condition FACT('suspicious_activity') AND NOT FACT('host_compromised') increases priority of actions ['InvestigateHost'] by 0.4.",
+    "source": "cskg_rules",
+    "citation": "cskg://rule/Investigate-Priority-Over-Decoy",
+    "score": 0.8,
+    "episode": 20,
+    "step": 4,
+    "kind": "rule"
+  },
+  {
+    "id": "ep20_step4_step4_rec_InvestigateHost_User4",
+    "text": "Recommended action from prior rules: InvestigateHost_User4 with priority=1.100000023841858.",
+    "source": "cskg_prior",
+    "citation": "env://episode20/step4/recommended_actions",
+    "score": 0.7,
+    "episode": 20,
+    "step": 4,
+    "kind": "recommendation"
+  },
+  {
+    "id": "ep20_step4_step4_rec_InvestigateHost_Op_Host1",
+    "text": "Recommended action from prior rules: InvestigateHost_Op_Host1 with priority=1.100000023841858.",
+    "source": "cskg_prior",
+    "citation": "env://episode20/step4/recommended_actions",
+    "score": 0.7,
+    "episode": 20,
+    "step": 4,
+    "kind": "recommendation"
+  },
+  {
+    "id": "ep20_step4_step4_rec_InvestigateHost_UnknownHost",
+    "text": "Recommended action from prior rules: InvestigateHost_UnknownHost with priority=1.100000023841858.",
+    "source": "cskg_prior",
+    "citation": "env://episode20/step4/recommended_actions",
+    "score": 0.7,
+    "episode": 20,
+    "step": 4,
+    "kind": "recommendation"
+  },
+  {
+    "id": "ep20_step4_action",
+    "text": "At episode 20, step 4, blue executed action DecoySmss_Enterprise1 (idx=84).",
+    "source": "blue_action",
+    "citation": "env://episode20/step4/action",
+    "score": 0.9,
+    "episode": 20,
+    "step": 4,
+    "kind": "blue_action"
+  },
+  {
+    "id": "ep20_step5_step5_fact_suspicious",
+    "text": "Suspicious activity has been detected (episode=20, step=5).",
+    "source": "env_facts",
+    "citation": "env://episode20/step5/suspicious_activity",
+    "score": 0.9,
+    "episode": 20,
+    "step": 5,
+    "kind": "fact"
+  },
+  {
+    "id": "ep20_step5_step5_fact_host_discovered",
+    "text": "At least one host has been discovered by Blue.",
+    "source": "env_facts",
+    "citation": "env://episode20/step5/host_discovered",
+    "score": 0.7,
+    "episode": 20,
+    "step": 5,
+    "kind": "fact"
+  },
+  {
+    "id": "ep20_step5_step5_fact_recent_reward",
+    "text": "Recent environment reward is 0.0.",
+    "source": "env_facts",
+    "citation": "env://episode20/step5/recent_reward",
+    "score": 0.5,
+    "episode": 20,
+    "step": 5,
+    "kind": "fact"
+  },
+  {
+    "id": "ep20_step5_step5_target_User4",
+    "text": "Current blue action targets host User4 (user_host with criticality=1)",
+    "source": "blue_action",
+    "citation": "env://episode20/step5/action_target",
+    "score": 0.9,
+    "episode": 20,
+    "step": 5,
+    "kind": "mixed"
+  },
+  {
+    "id": "ep20_step5_seed_host_User4",
+    "text": "User4 is a user_host with criticality=1 in subnet_user.",
+    "source": "seed_graph",
+    "citation": "seed://host/User4",
+    "score": 1.0,
+    "episode": 20,
+    "step": 5,
+    "kind": "mixed"
+  },
+  {
+    "id": "ep20_step5_seed_path_User4_Enterprise2",
+    "text": "User4 can reach Enterprise2 (relation: reachable).",
+    "source": "seed_graph",
+    "citation": "seed://path/User4->Enterprise2",
+    "score": 1.0,
+    "episode": 20,
+    "step": 5,
+    "kind": "mixed"
+  },
+  {
+    "id": "ep20_step5_rule_No-Sleep-Under-Suspicion",
+    "text": "Rule 'No-Sleep-Under-Suspicion' with condition FACT('suspicious_activity') OR FACT('host_compromised') OR FACT('high_risk_state') is active and applies a hard_mask on actions ['Sleep'].",
+    "source": "cskg_rules",
+    "citation": "cskg://rule/No-Sleep-Under-Suspicion",
+    "score": 0.8,
+    "episode": 20,
+    "step": 5,
+    "kind": "rule"
+  },
+  {
+    "id": "ep20_step5_rule_Prefer-Investigate-On-Suspicion",
+    "text": "Rule 'Prefer-Investigate-On-Suspicion' with condition FACT('suspicious_activity') AND NOT FACT('host_compromised') increases priority of actions ['InvestigateHost'] by 0.7.",
+    "source": "cskg_rules",
+    "citation": "cskg://rule/Prefer-Investigate-On-Suspicion",
+    "score": 0.8,
+    "episode": 20,
+    "step": 5,
+    "kind": "rule"
+  },
+  {
+    "id": "ep20_step5_rule_Prefer-Decoy-Under-Suspicion",
+    "text": "Rule 'Prefer-Decoy-Under-Suspicion' with condition FACT('suspicious_activity') increases priority of actions ['DecoyApache', 'DecoyFemitter', 'DecoyHarakaSMPT', 'DecoySmss', 'DecoySSHD', 'DecoySvchost', 'DecoyTomcat', 'DecoyVsftpd'] by 0.22.",
+    "source": "cskg_rules",
+    "citation": "cskg://rule/Prefer-Decoy-Under-Suspicion",
+    "score": 0.8,
+    "episode": 20,
+    "step": 5,
+    "kind": "rule"
+  },
+  {
+    "id": "ep20_step5_rule_Investigate-Priority-Over-Decoy",
+    "text": "Rule 'Investigate-Priority-Over-Decoy' with condition FACT('suspicious_activity') AND NOT FACT('host_compromised') increases priority of actions ['InvestigateHost'] by 0.4.",
+    "source": "cskg_rules",
+    "citation": "cskg://rule/Investigate-Priority-Over-Decoy",
+    "score": 0.8,
+    "episode": 20,
+    "step": 5,
+    "kind": "rule"
+  },
+  {
+    "id": "ep20_step5_step5_rec_InvestigateHost_User4",
+    "text": "Recommended action from prior rules: InvestigateHost_User4 with priority=1.100000023841858.",
+    "source": "cskg_prior",
+    "citation": "env://episode20/step5/recommended_actions",
+    "score": 0.7,
+    "episode": 20,
+    "step": 5,
+    "kind": "recommendation"
+  },
+  {
+    "id": "ep20_step5_step5_rec_InvestigateHost_Op_Host1",
+    "text": "Recommended action from prior rules: InvestigateHost_Op_Host1 with priority=1.100000023841858.",
+    "source": "cskg_prior",
+    "citation": "env://episode20/step5/recommended_actions",
+    "score": 0.7,
+    "episode": 20,
+    "step": 5,
+    "kind": "recommendation"
+  },
+  {
+    "id": "ep20_step5_step5_rec_InvestigateHost_UnknownHost",
+    "text": "Recommended action from prior rules: InvestigateHost_UnknownHost with priority=1.100000023841858.",
+    "source": "cskg_prior",
+    "citation": "env://episode20/step5/recommended_actions",
+    "score": 0.7,
+    "episode": 20,
+    "step": 5,
+    "kind": "recommendation"
+  },
+  {
+    "id": "ep20_step5_action",
+    "text": "At episode 20, step 5, blue executed action RestoreService_User4 (idx=174).",
+    "source": "blue_action",
+    "citation": "env://episode20/step5/action",
+    "score": 0.9,
+    "episode": 20,
+    "step": 5,
+    "kind": "blue_action"
+  },
+  {
+    "id": "ep20_step6_step6_fact_suspicious",
+    "text": "Suspicious activity has been detected (episode=20, step=6).",
+    "source": "env_facts",
+    "citation": "env://episode20/step6/suspicious_activity",
+    "score": 0.9,
+    "episode": 20,
+    "step": 6,
+    "kind": "fact"
+  },
+  {
+    "id": "ep20_step6_step6_fact_host_discovered",
+    "text": "At least one host has been discovered by Blue.",
+    "source": "env_facts",
+    "citation": "env://episode20/step6/host_discovered",
+    "score": 0.7,
+    "episode": 20,
+    "step": 6,
+    "kind": "fact"
+  },
+  {
+    "id": "ep20_step6_step6_fact_recent_reward",
+    "text": "Recent environment reward is 0.0.",
+    "source": "env_facts",
+    "citation": "env://episode20/step6/recent_reward",
+    "score": 0.5,
+    "episode": 20,
+    "step": 6,
+    "kind": "fact"
+  },
+  {
+    "id": "ep20_step6_step6_target_Enterprise0",
+    "text": "Current blue action targets host Enterprise0 (enterprise_server with criticality=3)",
+    "source": "blue_action",
+    "citation": "env://episode20/step6/action_target",
+    "score": 0.9,
+    "episode": 20,
+    "step": 6,
+    "kind": "mixed"
+  },
+  {
+    "id": "ep20_step6_seed_host_Enterprise0",
+    "text": "Enterprise0 is a enterprise_server with criticality=3 in subnet_enterprise.",
+    "source": "seed_graph",
+    "citation": "seed://host/Enterprise0",
+    "score": 1.0,
+    "episode": 20,
+    "step": 6,
+    "kind": "mixed"
+  },
+  {
+    "id": "ep20_step6_seed_path_User0_Enterprise0",
+    "text": "User0 can reach Enterprise0 (relation: reachable).",
+    "source": "seed_graph",
+    "citation": "seed://path/User0->Enterprise0",
+    "score": 0.9,
+    "episode": 20,
+    "step": 6,
+    "kind": "mixed"
+  },
+  {
+    "id": "ep20_step6_seed_path_User1_Enterprise0",
+    "text": "User1 can reach Enterprise0 (relation: reachable).",
+    "source": "seed_graph",
+    "citation": "seed://path/User1->Enterprise0",
+    "score": 0.9,
+    "episode": 20,
+    "step": 6,
+    "kind": "mixed"
+  },
+  {
+    "id": "ep20_step6_seed_path_Enterprise0_Op_Server0",
+    "text": "Enterprise0 can reach Op_Server0 (relation: reachable).",
+    "source": "seed_graph",
+    "citation": "seed://path/Enterprise0->Op_Server0",
+    "score": 1.0,
+    "episode": 20,
+    "step": 6,
+    "kind": "mixed"
+  },
+  {
+    "id": "ep20_step6_rule_No-Sleep-Under-Suspicion",
+    "text": "Rule 'No-Sleep-Under-Suspicion' with condition FACT('suspicious_activity') OR FACT('host_compromised') OR FACT('high_risk_state') is active and applies a hard_mask on actions ['Sleep'].",
+    "source": "cskg_rules",
+    "citation": "cskg://rule/No-Sleep-Under-Suspicion",
+    "score": 0.8,
+    "episode": 20,
+    "step": 6,
+    "kind": "rule"
+  },
+  {
+    "id": "ep20_step6_rule_Prefer-Investigate-On-Suspicion",
+    "text": "Rule 'Prefer-Investigate-On-Suspicion' with condition FACT('suspicious_activity') AND NOT FACT('host_compromised') increases priority of actions ['InvestigateHost'] by 0.7.",
+    "source": "cskg_rules",
+    "citation": "cskg://rule/Prefer-Investigate-On-Suspicion",
+    "score": 0.8,
+    "episode": 20,
+    "step": 6,
+    "kind": "rule"
+  },
+  {
+    "id": "ep20_step6_rule_Prefer-Decoy-Under-Suspicion",
+    "text": "Rule 'Prefer-Decoy-Under-Suspicion' with condition FACT('suspicious_activity') increases priority of actions ['DecoyApache', 'DecoyFemitter', 'DecoyHarakaSMPT', 'DecoySmss', 'DecoySSHD', 'DecoySvchost', 'DecoyTomcat', 'DecoyVsftpd'] by 0.22.",
+    "source": "cskg_rules",
+    "citation": "cskg://rule/Prefer-Decoy-Under-Suspicion",
+    "score": 0.8,
+    "episode": 20,
+    "step": 6,
+    "kind": "rule"
+  },
+  {
+    "id": "ep20_step6_rule_Investigate-Priority-Over-Decoy",
+    "text": "Rule 'Investigate-Priority-Over-Decoy' with condition FACT('suspicious_activity') AND NOT FACT('host_compromised') increases priority of actions ['InvestigateHost'] by 0.4.",
+    "source": "cskg_rules",
+    "citation": "cskg://rule/Investigate-Priority-Over-Decoy",
+    "score": 0.8,
+    "episode": 20,
+    "step": 6,
+    "kind": "rule"
+  },
+  {
+    "id": "ep20_step6_step6_rec_InvestigateHost_User4",
+    "text": "Recommended action from prior rules: InvestigateHost_User4 with priority=1.100000023841858.",
+    "source": "cskg_prior",
+    "citation": "env://episode20/step6/recommended_actions",
+    "score": 0.7,
+    "episode": 20,
+    "step": 6,
+    "kind": "recommendation"
+  },
+  {
+    "id": "ep20_step6_step6_rec_InvestigateHost_Op_Host1",
+    "text": "Recommended action from prior rules: InvestigateHost_Op_Host1 with priority=1.100000023841858.",
+    "source": "cskg_prior",
+    "citation": "env://episode20/step6/recommended_actions",
+    "score": 0.7,
+    "episode": 20,
+    "step": 6,
+    "kind": "recommendation"
+  },
+  {
+    "id": "ep20_step6_step6_rec_InvestigateHost_UnknownHost",
+    "text": "Recommended action from prior rules: InvestigateHost_UnknownHost with priority=1.100000023841858.",
+    "source": "cskg_prior",
+    "citation": "env://episode20/step6/recommended_actions",
+    "score": 0.7,
+    "episode": 20,
+    "step": 6,
+    "kind": "recommendation"
+  },
+  {
+    "id": "ep20_step6_action",
+    "text": "At episode 20, step 6, blue executed action DecoyTomcat_Enterprise0 (idx=131).",
+    "source": "blue_action",
+    "citation": "env://episode20/step6/action",
+    "score": 0.9,
+    "episode": 20,
+    "step": 6,
+    "kind": "blue_action"
+  },
+  {
+    "id": "ep20_step7_step7_fact_suspicious",
+    "text": "Suspicious activity has been detected (episode=20, step=7).",
+    "source": "env_facts",
+    "citation": "env://episode20/step7/suspicious_activity",
+    "score": 0.9,
+    "episode": 20,
+    "step": 7,
+    "kind": "fact"
+  },
+  {
+    "id": "ep20_step7_step7_fact_host_discovered",
+    "text": "At least one host has been discovered by Blue.",
+    "source": "env_facts",
+    "citation": "env://episode20/step7/host_discovered",
+    "score": 0.7,
+    "episode": 20,
+    "step": 7,
+    "kind": "fact"
+  },
+  {
+    "id": "ep20_step7_step7_fact_recent_reward",
+    "text": "Recent environment reward is 0.0.",
+    "source": "env_facts",
+    "citation": "env://episode20/step7/recent_reward",
+    "score": 0.5,
+    "episode": 20,
+    "step": 7,
+    "kind": "fact"
+  },
+  {
+    "id": "ep20_step7_rule_No-Sleep-Under-Suspicion",
+    "text": "Rule 'No-Sleep-Under-Suspicion' with condition FACT('suspicious_activity') OR FACT('host_compromised') OR FACT('high_risk_state') is active and applies a hard_mask on actions ['Sleep'].",
+    "source": "cskg_rules",
+    "citation": "cskg://rule/No-Sleep-Under-Suspicion",
+    "score": 0.8,
+    "episode": 20,
+    "step": 7,
+    "kind": "rule"
+  },
+  {
+    "id": "ep20_step7_rule_Prefer-Investigate-On-Suspicion",
+    "text": "Rule 'Prefer-Investigate-On-Suspicion' with condition FACT('suspicious_activity') AND NOT FACT('host_compromised') increases priority of actions ['InvestigateHost'] by 0.7.",
+    "source": "cskg_rules",
+    "citation": "cskg://rule/Prefer-Investigate-On-Suspicion",
+    "score": 0.8,
+    "episode": 20,
+    "step": 7,
+    "kind": "rule"
+  },
+  {
+    "id": "ep20_step7_rule_Prefer-Decoy-Under-Suspicion",
+    "text": "Rule 'Prefer-Decoy-Under-Suspicion' with condition FACT('suspicious_activity') increases priority of actions ['DecoyApache', 'DecoyFemitter', 'DecoyHarakaSMPT', 'DecoySmss', 'DecoySSHD', 'DecoySvchost', 'DecoyTomcat', 'DecoyVsftpd'] by 0.22.",
+    "source": "cskg_rules",
+    "citation": "cskg://rule/Prefer-Decoy-Under-Suspicion",
+    "score": 0.8,
+    "episode": 20,
+    "step": 7,
+    "kind": "rule"
+  },
+  {
+    "id": "ep20_step7_rule_Investigate-Priority-Over-Decoy",
+    "text": "Rule 'Investigate-Priority-Over-Decoy' with condition FACT('suspicious_activity') AND NOT FACT('host_compromised') increases priority of actions ['InvestigateHost'] by 0.4.",
+    "source": "cskg_rules",
+    "citation": "cskg://rule/Investigate-Priority-Over-Decoy",
+    "score": 0.8,
+    "episode": 20,
+    "step": 7,
+    "kind": "rule"
+  },
+  {
+    "id": "ep20_step7_step7_rec_InvestigateHost_User4",
+    "text": "Recommended action from prior rules: InvestigateHost_User4 with priority=1.100000023841858.",
+    "source": "cskg_prior",
+    "citation": "env://episode20/step7/recommended_actions",
+    "score": 0.7,
+    "episode": 20,
+    "step": 7,
+    "kind": "recommendation"
+  },
+  {
+    "id": "ep20_step7_step7_rec_InvestigateHost_Op_Host1",
+    "text": "Recommended action from prior rules: InvestigateHost_Op_Host1 with priority=1.100000023841858.",
+    "source": "cskg_prior",
+    "citation": "env://episode20/step7/recommended_actions",
+    "score": 0.7,
+    "episode": 20,
+    "step": 7,
+    "kind": "recommendation"
+  },
+  {
+    "id": "ep20_step7_step7_rec_InvestigateHost_UnknownHost",
+    "text": "Recommended action from prior rules: InvestigateHost_UnknownHost with priority=1.100000023841858.",
+    "source": "cskg_prior",
+    "citation": "env://episode20/step7/recommended_actions",
+    "score": 0.7,
+    "episode": 20,
+    "step": 7,
+    "kind": "recommendation"
+  },
+  {
+    "id": "ep20_step7_action",
+    "text": "At episode 20, step 7, blue executed action InvestigateHost_Op_Host0 (idx=6).",
+    "source": "blue_action",
+    "citation": "env://episode20/step7/action",
+    "score": 0.9,
+    "episode": 20,
+    "step": 7,
+    "kind": "blue_action"
+  },
+  {
+    "id": "ep20_step8_step8_fact_recent_reward",
+    "text": "Recent environment reward is 0.0.",
+    "source": "env_facts",
+    "citation": "env://episode20/step8/recent_reward",
+    "score": 0.5,
+    "episode": 20,
+    "step": 8,
+    "kind": "fact"
+  },
+  {
+    "id": "ep20_step8_step8_target_User4",
+    "text": "Current blue action targets host User4 (user_host with criticality=1)",
+    "source": "blue_action",
+    "citation": "env://episode20/step8/action_target",
+    "score": 0.9,
+    "episode": 20,
+    "step": 8,
+    "kind": "mixed"
+  },
+  {
+    "id": "ep20_step8_seed_host_User4",
+    "text": "User4 is a user_host with criticality=1 in subnet_user.",
+    "source": "seed_graph",
+    "citation": "seed://host/User4",
+    "score": 1.0,
+    "episode": 20,
+    "step": 8,
+    "kind": "mixed"
+  },
+  {
+    "id": "ep20_step8_seed_path_User4_Enterprise2",
+    "text": "User4 can reach Enterprise2 (relation: reachable).",
+    "source": "seed_graph",
+    "citation": "seed://path/User4->Enterprise2",
+    "score": 1.0,
+    "episode": 20,
+    "step": 8,
+    "kind": "mixed"
+  },
+  {
+    "id": "ep20_step8_rule_Avoid-Remove-Decoy-When-Quiet",
+    "text": "Rule 'Avoid-Remove-Decoy-When-Quiet' with condition NOT FACT('suspicious_activity') AND NOT FACT('host_compromised') is active and applies a hard_mask on actions ['RemoveMalware', 'RemoveMalware_Defender', 'RemoveMalware_Enterprise0', 'RemoveMalware_Enterprise1', 'RemoveMalware_Enterprise2', 'RemoveMalware_Op_Host0', 'RemoveMalware_Op_Host1', 'RemoveMalware_Op_Host2', 'RemoveMalware_Op_Server0', 'RemoveMalware_User0', 'RemoveMalware_User1', 'RemoveMalware_User2', 'RemoveMalware_User3', 'RemoveMalware_User4', 'DecoyApache', 'DecoyFemitter', 'DecoyHarakaSMPT', 'DecoySmss', 'DecoySSHD', 'DecoySvchost', 'DecoyTomcat', 'DecoyVsftpd'].",
+    "source": "cskg_rules",
+    "citation": "cskg://rule/Avoid-Remove-Decoy-When-Quiet",
+    "score": 0.8,
+    "episode": 20,
+    "step": 8,
+    "kind": "rule"
+  },
+  {
+    "id": "ep20_step8_rule_Prefer-Monitor-When-Quiet",
+    "text": "Rule 'Prefer-Monitor-When-Quiet' with condition NOT FACT('suspicious_activity') AND NOT FACT('host_compromised') increases priority of actions ['MonitorTraffic'] by 0.4.",
+    "source": "cskg_rules",
+    "citation": "cskg://rule/Prefer-Monitor-When-Quiet",
+    "score": 0.8,
+    "episode": 20,
+    "step": 8,
+    "kind": "rule"
+  },
+  {
+    "id": "ep20_step8_rule_Deprioritize-Restore-When-Quiet",
+    "text": "Rule 'Deprioritize-Restore-When-Quiet' with condition NOT FACT('suspicious_activity') AND NOT FACT('host_compromised') increases priority of actions ['RestoreService', 'RestoreService_Enterprise0', 'RestoreService_Enterprise1', 'RestoreService_Enterprise2', 'RestoreService_Op_Server0'] by -0.4.",
+    "source": "cskg_rules",
+    "citation": "cskg://rule/Deprioritize-Restore-When-Quiet",
+    "score": 0.8,
+    "episode": 20,
+    "step": 8,
+    "kind": "rule"
+  },
+  {
+    "id": "ep20_step8_step8_rec_MonitorTraffic",
+    "text": "Recommended action from prior rules: MonitorTraffic with priority=0.4000000059604645.",
+    "source": "cskg_prior",
+    "citation": "env://episode20/step8/recommended_actions",
+    "score": 0.7,
+    "episode": 20,
+    "step": 8,
+    "kind": "recommendation"
+  },
+  {
+    "id": "ep20_step8_action",
+    "text": "At episode 20, step 8, blue executed action InvestigateHost_User4 (idx=14).",
+    "source": "blue_action",
+    "citation": "env://episode20/step8/action",
+    "score": 0.9,
+    "episode": 20,
+    "step": 8,
+    "kind": "blue_action"
+  }
+]

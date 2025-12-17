@@ -1,5 +1,0 @@
-server_services: &server_services
-  - type: database-service
-
-client_applications: &client_applications
-  - type: database-client

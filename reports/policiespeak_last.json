@@ -1,0 +1,83 @@
+{
+  "facts": [
+    {
+      "fact": "Suspicious activity has been detected (episode=4, step=4).",
+      "evidence_id": "step4_fact_suspicious",
+      "citation": "env://episode4/step4/suspicious_activity",
+      "confidence": 0.9,
+      "query": "suspicious activity"
+    }
+  ],
+  "policies": [
+    {
+      "context": "blue_policy",
+      "intent": "BlueAction",
+      "actor": "blue_agent",
+      "constraints": {
+        "max_latency_ms": 5000,
+        "require_evidence": true,
+        "min_confidence": 0.5
+      },
+      "evidence": [
+        {
+          "id": "step4_fact_suspicious",
+          "statement": "Suspicious activity has been detected (episode=4, step=4).",
+          "source": "env_facts",
+          "citation": "env://episode4/step4/suspicious_activity",
+          "confidence": 0.9
+        }
+      ],
+      "actions": [
+        {
+          "name": "DecoyVsftpd_Enterprise0",
+          "description": "Blue took action DecoyVsftpd_Enterprise0 targeting Enterprise0.",
+          "targets": [
+            "Enterprise0"
+          ],
+          "parameters": {},
+          "evidence": [
+            "step4_fact_suspicious"
+          ],
+          "severity": 6
+        }
+      ],
+      "metadata": {
+        "llm_backend": "rule_based",
+        "training_refs": [
+          "cskg_seed_graph_v1"
+        ]
+      }
+    }
+  ],
+  "plans": [
+    {
+      "playbook": [
+        {
+          "action": "DecoyVsftpd_Enterprise0",
+          "target": [
+            "Enterprise0"
+          ],
+          "actuator": "blue_agent",
+          "args": {
+            "severity": 6
+          },
+          "evidence": [
+            "step4_fact_suspicious"
+          ]
+        }
+      ],
+      "intent": "BlueAction",
+      "context": "blue_policy",
+      "z3": {
+        "status": "soft-check",
+        "issues": [
+          "软校验通过"
+        ],
+        "satisfied": true
+      }
+    }
+  ],
+  "human_readable": "# 策略官摘要\n\n输入来源：tmp_step.json\n训练参考：cskg_seed_graph_v1\n\n行动要点：\n- [1] DecoyVsftpd_Enterprise0 -> Enterprise0（severity=6，evidence=step4_fact_suspicious）\n\n约束校验：\n- soft-check: 软校验通过",
+  "narrative": "# 协同结果自然语言摘要\n\n查询：suspicious activity\n输入来源：tmp_step.json\n事实：1 条 | 模板：1 个 | 计划：1 个\n训练参考：cskg_seed_graph_v1\n模板归因：rule_based -> BlueAction\n行动总览：DecoyVsftpd_Enterprise0@Enterprise0 (sev=6)\n约束校验：soft-check: 软校验通过\n\n## 评测指标\n- Hallucination@0: 0.0000\n- Calibration-E (Brier): 0.0100\n- Calibration-E (NLL): 0.1054\n- 同证据一致性: 1.0000",
+  "report": "C:\\cybdef\\reports\\policiespeak_eval.md"
+}

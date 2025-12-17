@@ -1,0 +1,570 @@
+{
+  "ckpt": "C:\\cybdef\\scripts\\runs\\multi_blue_test\\multi_blue_test_1764343336\\ac_multi_upd175.pt",
+  "episodes": 80,
+  "max_steps": 128,
+  "stochastic": false,
+  "overall": {
+    "return": {
+      "mean": -198.16749572753906,
+      "std": 434.3912353515625,
+      "min": -950.3049926757812,
+      "max": 69.9749984741211,
+      "n": 80
+    },
+    "length": {
+      "mean": 121.0,
+      "std": 12.12435531616211,
+      "min": 100.0,
+      "max": 128.0,
+      "n": 80
+    }
+  },
+  "per_env": {
+    "cyborg": {
+      "return": {
+        "mean": -950.3049926757812,
+        "std": 0.0,
+        "min": -950.3049926757812,
+        "max": -950.3049926757812,
+        "n": 20
+      },
+      "length": {
+        "mean": 100.0,
+        "std": 0.0,
+        "min": 100.0,
+        "max": 100.0,
+        "n": 20
+      }
+    },
+    "ics": {
+      "return": {
+        "mean": 69.97499084472656,
+        "std": 7.62939453125e-06,
+        "min": 69.9749984741211,
+        "max": 69.9749984741211,
+        "n": 20
+      },
+      "length": {
+        "mean": 128.0,
+        "std": 0.0,
+        "min": 128.0,
+        "max": 128.0,
+        "n": 20
+      }
+    },
+    "lot": {
+      "return": {
+        "mean": 39.02500534057617,
+        "std": 3.814697265625e-06,
+        "min": 39.025001525878906,
+        "max": 39.025001525878906,
+        "n": 20
+      },
+      "length": {
+        "mean": 128.0,
+        "std": 0.0,
+        "min": 128.0,
+        "max": 128.0,
+        "n": 20
+      }
+    },
+    "robotics": {
+      "return": {
+        "mean": 48.63500213623047,
+        "std": 3.814697265625e-06,
+        "min": 48.6349983215332,
+        "max": 48.6349983215332,
+        "n": 20
+      },
+      "length": {
+        "mean": 128.0,
+        "std": 0.0,
+        "min": 128.0,
+        "max": 128.0,
+        "n": 20
+      }
+    }
+  },
+  "per_episode": [
+    {
+      "index": 1,
+      "env": "cyborg",
+      "return": -950.3050000000001,
+      "length": 100
+    },
+    {
+      "index": 2,
+      "env": "ics",
+      "return": 69.97499999999984,
+      "length": 128
+    },
+    {
+      "index": 3,
+      "env": "lot",
+      "return": 39.024999999999984,
+      "length": 128
+    },
+    {
+      "index": 4,
+      "env": "robotics",
+      "return": 48.634999999999984,
+      "length": 128
+    },
+    {
+      "index": 5,
+      "env": "cyborg",
+      "return": -950.3050000000001,
+      "length": 100
+    },
+    {
+      "index": 6,
+      "env": "ics",
+      "return": 69.97499999999984,
+      "length": 128
+    },
+    {
+      "index": 7,
+      "env": "lot",
+      "return": 39.024999999999984,
+      "length": 128
+    },
+    {
+      "index": 8,
+      "env": "robotics",
+      "return": 48.634999999999984,
+      "length": 128
+    },
+    {
+      "index": 9,
+      "env": "cyborg",
+      "return": -950.3050000000001,
+      "length": 100
+    },
+    {
+      "index": 10,
+      "env": "ics",
+      "return": 69.97499999999984,
+      "length": 128
+    },
+    {
+      "index": 11,
+      "env": "lot",
+      "return": 39.024999999999984,
+      "length": 128
+    },
+    {
+      "index": 12,
+      "env": "robotics",
+      "return": 48.634999999999984,
+      "length": 128
+    },
+    {
+      "index": 13,
+      "env": "cyborg",
+      "return": -950.3050000000001,
+      "length": 100
+    },
+    {
+      "index": 14,
+      "env": "ics",
+      "return": 69.97499999999984,
+      "length": 128
+    },
+    {
+      "index": 15,
+      "env": "lot",
+      "return": 39.024999999999984,
+      "length": 128
+    },
+    {
+      "index": 16,
+      "env": "robotics",
+      "return": 48.634999999999984,
+      "length": 128
+    },
+    {
+      "index": 17,
+      "env": "cyborg",
+      "return": -950.3050000000001,
+      "length": 100
+    },
+    {
+      "index": 18,
+      "env": "ics",
+      "return": 69.97499999999984,
+      "length": 128
+    },
+    {
+      "index": 19,
+      "env": "lot",
+      "return": 39.024999999999984,
+      "length": 128
+    },
+    {
+      "index": 20,
+      "env": "robotics",
+      "return": 48.634999999999984,
+      "length": 128
+    },
+    {
+      "index": 21,
+      "env": "cyborg",
+      "return": -950.3050000000001,
+      "length": 100
+    },
+    {
+      "index": 22,
+      "env": "ics",
+      "return": 69.97499999999984,
+      "length": 128
+    },
+    {
+      "index": 23,
+      "env": "lot",
+      "return": 39.024999999999984,
+      "length": 128
+    },
+    {
+      "index": 24,
+      "env": "robotics",
+      "return": 48.634999999999984,
+      "length": 128
+    },
+    {
+      "index": 25,
+      "env": "cyborg",
+      "return": -950.3050000000001,
+      "length": 100
+    },
+    {
+      "index": 26,
+      "env": "ics",
+      "return": 69.97499999999984,
+      "length": 128
+    },
+    {
+      "index": 27,
+      "env": "lot",
+      "return": 39.024999999999984,
+      "length": 128
+    },
+    {
+      "index": 28,
+      "env": "robotics",
+      "return": 48.634999999999984,
+      "length": 128
+    },
+    {
+      "index": 29,
+      "env": "cyborg",
+      "return": -950.3050000000001,
+      "length": 100
+    },
+    {
+      "index": 30,
+      "env": "ics",
+      "return": 69.97499999999984,
+      "length": 128
+    },
+    {
+      "index": 31,
+      "env": "lot",
+      "return": 39.024999999999984,
+      "length": 128
+    },
+    {
+      "index": 32,
+      "env": "robotics",
+      "return": 48.634999999999984,
+      "length": 128
+    },
+    {
+      "index": 33,
+      "env": "cyborg",
+      "return": -950.3050000000001,
+      "length": 100
+    },
+    {
+      "index": 34,
+      "env": "ics",
+      "return": 69.97499999999984,
+      "length": 128
+    },
+    {
+      "index": 35,
+      "env": "lot",
+      "return": 39.024999999999984,
+      "length": 128
+    },
+    {
+      "index": 36,
+      "env": "robotics",
+      "return": 48.634999999999984,
+      "length": 128
+    },
+    {
+      "index": 37,
+      "env": "cyborg",
+      "return": -950.3050000000001,
+      "length": 100
+    },
+    {
+      "index": 38,
+      "env": "ics",
+      "return": 69.97499999999984,
+      "length": 128
+    },
+    {
+      "index": 39,
+      "env": "lot",
+      "return": 39.024999999999984,
+      "length": 128
+    },
+    {
+      "index": 40,
+      "env": "robotics",
+      "return": 48.634999999999984,
+      "length": 128
+    },
+    {
+      "index": 41,
+      "env": "cyborg",
+      "return": -950.3050000000001,
+      "length": 100
+    },
+    {
+      "index": 42,
+      "env": "ics",
+      "return": 69.97499999999984,
+      "length": 128
+    },
+    {
+      "index": 43,
+      "env": "lot",
+      "return": 39.024999999999984,
+      "length": 128
+    },
+    {
+      "index": 44,
+      "env": "robotics",
+      "return": 48.634999999999984,
+      "length": 128
+    },
+    {
+      "index": 45,
+      "env": "cyborg",
+      "return": -950.3050000000001,
+      "length": 100
+    },
+    {
+      "index": 46,
+      "env": "ics",
+      "return": 69.97499999999984,
+      "length": 128
+    },
+    {
+      "index": 47,
+      "env": "lot",
+      "return": 39.024999999999984,
+      "length": 128
+    },
+    {
+      "index": 48,
+      "env": "robotics",
+      "return": 48.634999999999984,
+      "length": 128
+    },
+    {
+      "index": 49,
+      "env": "cyborg",
+      "return": -950.3050000000001,
+      "length": 100
+    },
+    {
+      "index": 50,
+      "env": "ics",
+      "return": 69.97499999999984,
+      "length": 128
+    },
+    {
+      "index": 51,
+      "env": "lot",
+      "return": 39.024999999999984,
+      "length": 128
+    },
+    {
+      "index": 52,
+      "env": "robotics",
+      "return": 48.634999999999984,
+      "length": 128
+    },
+    {
+      "index": 53,
+      "env": "cyborg",
+      "return": -950.3050000000001,
+      "length": 100
+    },
+    {
+      "index": 54,
+      "env": "ics",
+      "return": 69.97499999999984,
+      "length": 128
+    },
+    {
+      "index": 55,
+      "env": "lot",
+      "return": 39.024999999999984,
+      "length": 128
+    },
+    {
+      "index": 56,
+      "env": "robotics",
+      "return": 48.634999999999984,
+      "length": 128
+    },
+    {
+      "index": 57,
+      "env": "cyborg",
+      "return": -950.3050000000001,
+      "length": 100
+    },
+    {
+      "index": 58,
+      "env": "ics",
+      "return": 69.97499999999984,
+      "length": 128
+    },
+    {
+      "index": 59,
+      "env": "lot",
+      "return": 39.024999999999984,
+      "length": 128
+    },
+    {
+      "index": 60,
+      "env": "robotics",
+      "return": 48.634999999999984,
+      "length": 128
+    },
+    {
+      "index": 61,
+      "env": "cyborg",
+      "return": -950.3050000000001,
+      "length": 100
+    },
+    {
+      "index": 62,
+      "env": "ics",
+      "return": 69.97499999999984,
+      "length": 128
+    },
+    {
+      "index": 63,
+      "env": "lot",
+      "return": 39.024999999999984,
+      "length": 128
+    },
+    {
+      "index": 64,
+      "env": "robotics",
+      "return": 48.634999999999984,
+      "length": 128
+    },
+    {
+      "index": 65,
+      "env": "cyborg",
+      "return": -950.3050000000001,
+      "length": 100
+    },
+    {
+      "index": 66,
+      "env": "ics",
+      "return": 69.97499999999984,
+      "length": 128
+    },
+    {
+      "index": 67,
+      "env": "lot",
+      "return": 39.024999999999984,
+      "length": 128
+    },
+    {
+      "index": 68,
+      "env": "robotics",
+      "return": 48.634999999999984,
+      "length": 128
+    },
+    {
+      "index": 69,
+      "env": "cyborg",
+      "return": -950.3050000000001,
+      "length": 100
+    },
+    {
+      "index": 70,
+      "env": "ics",
+      "return": 69.97499999999984,
+      "length": 128
+    },
+    {
+      "index": 71,
+      "env": "lot",
+      "return": 39.024999999999984,
+      "length": 128
+    },
+    {
+      "index": 72,
+      "env": "robotics",
+      "return": 48.634999999999984,
+      "length": 128
+    },
+    {
+      "index": 73,
+      "env": "cyborg",
+      "return": -950.3050000000001,
+      "length": 100
+    },
+    {
+      "index": 74,
+      "env": "ics",
+      "return": 69.97499999999984,
+      "length": 128
+    },
+    {
+      "index": 75,
+      "env": "lot",
+      "return": 39.024999999999984,
+      "length": 128
+    },
+    {
+      "index": 76,
+      "env": "robotics",
+      "return": 48.634999999999984,
+      "length": 128
+    },
+    {
+      "index": 77,
+      "env": "cyborg",
+      "return": -950.3050000000001,
+      "length": 100
+    },
+    {
+      "index": 78,
+      "env": "ics",
+      "return": 69.97499999999984,
+      "length": 128
+    },
+    {
+      "index": 79,
+      "env": "lot",
+      "return": 39.024999999999984,
+      "length": 128
+    },
+    {
+      "index": 80,
+      "env": "robotics",
+      "return": 48.634999999999984,
+      "length": 128
+    }
+  ]
+}

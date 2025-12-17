@@ -10,32 +10,12 @@ Envs:
     - Robotics (PrimAITE, robotics.yaml)
 
 One shared policy (Actor-Critic) with unified obs_dim / act_dim:
-    - obs_dim = max(obs_dim of all envs)  (目前 2781)
-    - act_dim = max(act_dim of all envs)  (目前 145)
+    - obs_dim = max(obs_dim of all envs)
+    - act_dim = max(act_dim of all envs)
 
 This script supports two modes:
     - Pure PPO baseline (default)
-    - PPO + weak CSKG on CybORG only (soft prior + reward shaping via MultiEnvKB)
-
-用法示例（PowerShell）：
-
-    conda activate primaite311
-    cd C:\cybdef
-
-    # 纯 PPO 多场景训练
-    python scripts/agent/train_blue_multi_env.py `
-        --ppo-config C:\cybdef\scripts\configs\ppo.yaml `
-        --total-updates 200 `
-        --horizon 256 `
-        --run-prefix multi_blue_pure
-
-    # 开启 CybORG weak-CSKG
-    python scripts/agent/train_blue_multi_env.py `
-        --ppo-config C:\cybdef\scripts\configs\ppo.yaml `
-        --total-updates 200 `
-        --horizon 256 `
-        --enable-cskg `
-        --run-prefix multi_blue_cskg
+    - PPO + CSKG (multi-env via MultiEnvKB, if configs are provided)
 
 """
 
@@ -76,20 +56,30 @@ if str(ROOT) not in sys.path:
 # MultiEnvWrapper: 你之前已经创建并测试过的那个
 from scripts.envs.multi_env_wrapper import MultiEnvWrapper
 
-# MultiEnvKB：多场景 KB 管理器（目前只挂 cyborg）
+# MultiEnvKB：多场景 KB 管理器
 from scripts.cskg.multi_kb import MultiEnvKB
 
 import yaml
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-# CSKG 配置路径（沿用你单场景时的那套）
-CSKG_CFG_PATH = ROOT / "scripts" / "configs" / "cskg_cyborg_weak.yaml"
-SEED_GRAPH_PATH = ROOT / "scripts" / "configs" / "seed_graph.json"
+# === CSKG & Seed-Graph 配置 ===
+# CybORG 还是用原来的 weak-CSKG + seed_graph.json
+CSKG_CYBORG_CFG_PATH = ROOT / "scripts" / "configs" / "cskg_cyborg_weak.yaml"
+SEED_GRAPH_CYBORG_PATH = ROOT / "scripts" / "configs" / "seed_graph.json"
 CYBORG_ENV_CFG_PATH = ROOT / "scripts" / "configs" / "env.yaml"
 
-ICSKG_CFG_PATH = ROOT / "scripts" / "configs" / "cskg_ics_weak.yaml"
-ICS_SEED_GRAPH_PATH = SEED_GRAPH_PATH
+# PrimAITE 三个场景：使用 weak/strong 版 CSKG + 各自 seed_graph_*.json
+CSKG_ICS_CFG_PATH = ROOT / "scripts" / "configs" / "cskg_ics_weak.yaml"
+SEED_GRAPH_ICS_PATH = ROOT / "scripts" / "configs" / "seed_graph_ics.json"
+
+CSKG_LOT_CFG_PATH = ROOT / "scripts" / "configs" / "cskg_lot_weak.yaml"
+SEED_GRAPH_LOT_PATH = ROOT / "scripts" / "configs" / "seed_graph_lot.json"
+
+CSKG_ROBOTICS_CFG_PATH = ROOT / "scripts" / "configs" / "cskg_robotics_weak.yaml"
+SEED_GRAPH_ROBOTICS_PATH = ROOT / "scripts" / "configs" / "seed_graph_robotics.json"
+
+# PrimAITE 场景配置（官方自带）
 ICS_ENV_CFG_PATH = (
     ROOT
     / "third_party"
@@ -101,7 +91,27 @@ ICS_ENV_CFG_PATH = (
     / "ics.yaml"
 )
 
+LOT_ENV_CFG_PATH = (
+    ROOT
+    / "third_party"
+    / "PrimAITE"
+    / "src"
+    / "primaite"
+    / "config"
+    / "_package_data"
+    / "lot.yaml"
+)
 
+ROBOTICS_ENV_CFG_PATH = (
+    ROOT
+    / "third_party"
+    / "PrimAITE"
+    / "src"
+    / "primaite"
+    / "config"
+    / "_package_data"
+    / "robotics.yaml"
+)
 
 # 一个很小的系数，让先验真的很「weak」
 CSKG_PRIOR_COEF = 0.5
@@ -117,9 +127,7 @@ def load_yaml(path: str | pathlib.Path) -> Dict[str, Any]:
 
 
 def to_serializable(obj):
-    """便于 json.dump：把 numpy / ndarray 等转成 Python 原生类型。
-    对于无法直接序列化的对象（比如 AgentHistoryItem），统一转成 str(...)。
-    """
+    """便于 json.dump：把 numpy / ndarray 等转成 Python 原生类型。"""
     import numpy as _np
 
     if isinstance(obj, (_np.floating,)):
@@ -132,9 +140,7 @@ def to_serializable(obj):
         return [to_serializable(v) for v in obj]
     if isinstance(obj, dict):
         return {k: to_serializable(v) for k, v in obj.items()}
-    # fallback：任何不认识的对象 → 字符串
     return str(obj)
-
 
 
 def to_obs_vector(obs_raw: Any) -> np.ndarray:
@@ -149,7 +155,6 @@ def to_obs_vector(obs_raw: Any) -> np.ndarray:
         if "obs_vec" in obs_raw:
             obs_raw = obs_raw["obs_vec"]
         else:
-            # 兜底：尝试常见 key
             for k in ["obs", "observation", "vector", "state"]:
                 if k in obs_raw:
                     obs_raw = obs_raw[k]
@@ -273,7 +278,7 @@ def main():
     parser.add_argument(
         "--enable-cskg",
         action="store_true",
-        help="If set, enable weak CSKG (prior + reward shaping) for CybORG only via MultiEnvKB.",
+        help="If set, enable CSKG (prior + reward shaping) via MultiEnvKB.",
     )
 
     args = parser.parse_args()
@@ -331,13 +336,28 @@ def main():
     writer = SummaryWriter(log_dir=str(out_dir)) if SummaryWriter is not None else None
 
     # 用于画 reward 曲线
-    update_ids: list[int] = []
-    return_hist: list[float] = []
+    update_ids: List[int] = []
+    return_hist: List[float] = []
+
+    # ===== ✅ 环境统计计数器（全局） =====
+    env_step_counts: Dict[str, int] = {
+        "cyborg": 0,
+        "ics": 0,
+        "lot": 0,
+        "robotics": 0,
+    }
+    env_episode_counts: Dict[str, int] = {
+        "cyborg": 0,
+        "ics": 0,
+        "lot": 0,
+        "robotics": 0,
+    }
 
     # --- 初始化 MultiEnvWrapper ---
+    env_names = ["cyborg"]
     env = MultiEnvWrapper(
-        env_names=["cyborg", "ics", "lot", "robotics"],
-        weights=[0.25, 0.25, 0.25, 0.25],  # 这里其实是只训练 ICS，你后面可以再调
+        env_names=env_names,
+        weights=[1],
         mode="train",
     )
 
@@ -372,47 +392,58 @@ def main():
 
             # ===== 1) CybORG 动作名 =====
             tmp_cyb = CybORGWrapper(str(CYBORG_ENV_CFG_PATH))
-
             if hasattr(tmp_cyb, "action_names"):
-                # 如果你之后给 CybORGWrapper 也加了 action_names，就走这里
                 cyborg_action_names = list(tmp_cyb.action_names)
             elif hasattr(tmp_cyb, "action_space") and hasattr(tmp_cyb.action_space, "names"):
-                # 目前实际情况：CybORG 用的是 action_space.names
                 cyborg_action_names = list(tmp_cyb.action_space.names)
             else:
-                raise RuntimeError("CybORGWrapper: 无法找到动作名列表（既没有 action_names 也没有 action_space.names）")
-
+                raise RuntimeError(
+                    "CybORGWrapper: 无法找到动作名列表（既没有 action_names 也没有 action_space.names）"
+                )
             tmp_cyb.close()
 
-            # ===== 2) ICS 动作名 =====
-            # PrimaiteWrapper 我们已经在 __init__ 里显式加了 self.action_names
+            # ===== 2) ICS / LOT / ROBOTICS 动作名 =====
             tmp_ics = PrimaiteWrapper(str(ICS_ENV_CFG_PATH))
             ics_action_names = list(tmp_ics.action_names)
             tmp_ics.close()
 
+            tmp_lot = PrimaiteWrapper(str(LOT_ENV_CFG_PATH))
+            lot_action_names = list(tmp_lot.action_names)
+            tmp_lot.close()
+
+            tmp_robotics = PrimaiteWrapper(str(ROBOTICS_ENV_CFG_PATH))
+            robotics_action_names = list(tmp_robotics.action_names)
+            tmp_robotics.close()
+
             # ===== 3) MultiEnvKB 的 env_specs =====
             env_specs = {
                 "cyborg": {
-                    "seed_graph": SEED_GRAPH_PATH,
-                    "cskg": CSKG_CFG_PATH,
+                    "seed_graph": SEED_GRAPH_CYBORG_PATH,
+                    "cskg": CSKG_CYBORG_CFG_PATH,
                     "action_names": cyborg_action_names,
                 },
                 "ics": {
-                    "seed_graph": ICS_SEED_GRAPH_PATH,
-                    "cskg": ICSKG_CFG_PATH,
+                    "seed_graph": SEED_GRAPH_ICS_PATH,
+                    "cskg": CSKG_ICS_CFG_PATH,
                     "action_names": ics_action_names,
                 },
-                # 后面你要给 LOT / ROBOTICS 也挂 CSKG 的时候，在这里继续加
+                "lot": {
+                    "seed_graph": SEED_GRAPH_LOT_PATH,
+                    "cskg": CSKG_LOT_CFG_PATH,
+                    "action_names": lot_action_names,
+                },
+                "robotics": {
+                    "seed_graph": SEED_GRAPH_ROBOTICS_PATH,
+                    "cskg": CSKG_ROBOTICS_CFG_PATH,
+                    "action_names": robotics_action_names,
+                },
             }
 
             multi_kb = MultiEnvKB.from_env_specs(env_specs, recent_steps=10)
-            print(
-                "🧠 MultiEnvKB 初始化完成：挂载场景 = "
-                + ", ".join(list(env_specs.keys()))
-            )
+            print("🧠 MultiEnvKB 初始化完成：挂载场景 = " + ", ".join(list(env_specs.keys())))
 
         except Exception as e:
-            print(f"⚠ 无法初始化 MultiEnvKB（cyborg + ics），CSKG 将被禁用: {e}")
+            print(f"⚠ 无法初始化 MultiEnvKB，CSKG 将被禁用: {e}")
             multi_kb = None
     else:
         multi_kb = None
@@ -443,6 +474,10 @@ def main():
 
         ep_return = 0.0
         steps_collected = 0
+
+        # —— 本 update 各场景统计：步数 + reward 累积 ——
+        env_step_counts: Dict[str, int] = {name: 0 for name in env_names}
+        env_reward_sums: Dict[str, float] = {name: 0.0 for name in env_names}
 
         while steps_collected < ppo_cfg.horizon:
             global_step += 1
@@ -495,13 +530,13 @@ def main():
 
             # 与多环境交互（只 step 一次）
             next_obs_raw, reward, done, info = env.step(a_idx)
-            env_r = float(reward)
+            env_r = float(reward)  # 这里的 reward 已经是 shaped 之后的 r
             d = bool(done)
             next_facts = (
                 next_obs_raw.get("facts", {}) if isinstance(next_obs_raw, dict) else {}
             )
 
-            # === CSKG 奖励塑形 ===
+            # === CSKG 奖励塑形（如果开启的话，再做一次 shaping） ===
             r = env_r
             if multi_kb is not None and cur_env_name is not None:
                 r = multi_kb.shape_reward(
@@ -519,17 +554,20 @@ def main():
                         f"env_r={env_r:.4f}, shaped_r={r:.4f}"
                     )
 
+            # === 统计：每个场景的步数 & 累积 reward ===
+            if cur_env_name in env_step_counts:
+                env_step_counts[cur_env_name] += 1
+                env_reward_sums[cur_env_name] += float(r)
+
             # === ★ LLM 可解释日志：三方动作 + CSKG 规则 ===
             if explain_log_f is not None and cur_env_name is not None:
                 try:
-                    # 1) 蓝方动作名：优先用 info 里的 blue_action，没有就自己算一个
                     blue_action_name = None
                     if isinstance(info, dict):
                         blue_action_name = info.get("blue_action")
 
                     if blue_action_name is None:
                         try:
-                            # MultiEnvWrapper 可能有 get_action_name -> 跳到对应 wrapper
                             if hasattr(env, "get_action_name"):
                                 blue_action_name = env.get_action_name(a_idx)
                             else:
@@ -537,7 +575,6 @@ def main():
                         except Exception:
                             blue_action_name = f"action-{a_idx}"
 
-                    # 2) 红 / 绿方动作：直接透传 info 的结构（你说日志里已经这样存了）
                     red_actions = {}
                     green_actions = {}
                     if isinstance(info, dict):
@@ -548,7 +585,6 @@ def main():
                         if isinstance(ga, dict):
                             green_actions = ga
 
-                    # 3) 最近一次 CSKG 规则触发（如果有 KB）
                     prior_logits = None
                     active_mask_rules = []
                     active_prior_rules = []
@@ -557,11 +593,16 @@ def main():
                         kb = multi_kb.get_kb(cur_env_name)
                         if kb is not None:
                             prior_logits = getattr(kb, "_last_prior_logits", None)
-                            active_mask_rules = getattr(kb, "_last_active_mask_rules", []) or []
-                            active_prior_rules = getattr(kb, "_last_active_prior_rules", []) or []
-                            active_reward_rules = getattr(kb, "_last_active_reward_rules", []) or []
+                            active_mask_rules = getattr(
+                                kb, "_last_active_mask_rules", []
+                            ) or []
+                            active_prior_rules = getattr(
+                                kb, "_last_active_prior_rules", []
+                            ) or []
+                            active_reward_rules = getattr(
+                                kb, "_last_active_reward_rules", []
+                            ) or []
 
-                    # 4) 一点环境文本（给 LLM 看）
                     if isinstance(next_obs_raw, dict):
                         obs_text = str(next_obs_raw.get("raw", next_obs_raw))
                     else:
@@ -572,23 +613,13 @@ def main():
                         "global_step": global_step,
                         "env": cur_env_name,
                         "timestep": steps_collected,
-
-                        # 蓝方
                         "action_idx": a_idx,
                         "blue_action": blue_action_name,
                         "env_reward": env_r,
                         "shaped_reward": r,
-
-                        # 事实特征
                         "facts": next_facts,
-
-                        # CSKG 相关
-                        "active_mask_rules": [
-                            r0.get("name", "") for r0 in active_mask_rules
-                        ],
-                        "active_prior_rules": [
-                            r0.get("name", "") for r0 in active_prior_rules
-                        ],
+                        "active_mask_rules": [r0.get("name", "") for r0 in active_mask_rules],
+                        "active_prior_rules": [r0.get("name", "") for r0 in active_prior_rules],
                         "active_reward_rules": [
                             {
                                 "name": rr.get("name", ""),
@@ -604,12 +635,8 @@ def main():
                             if isinstance(prior_logits, np.ndarray)
                             else None
                         ),
-
-                        # 红 / 绿方
                         "red_actions": red_actions,
                         "green_actions": green_actions,
-
-                        # 环境可读文本 + 原始 info（以后可以用来反查）
                         "observation_text": obs_text,
                         "env_info": info if isinstance(info, dict) else None,
                     }
@@ -617,7 +644,6 @@ def main():
                     explain_log_f.write(
                         json.dumps(to_serializable(ex_record), ensure_ascii=False) + "\n"
                     )
-                    # 为了避免你看不到数据，这里强制 flush 一下
                     if steps_collected < 5 and cur_env_name in ("ics", "cyborg"):
                         print(
                             "[DEBUG-EXPLAIN] wrote step",
@@ -639,11 +665,11 @@ def main():
             obs_buf.append(obs_vec.copy())
             act_buf.append(a_idx)
             logp_buf.append(float(logp.item()))
-            rew_buf.append(r)
+            rew_buf.append(float(r))
             val_buf.append(float(value.item()))
             done_buf.append(float(d))
 
-            ep_return += r
+            ep_return += float(r)
             steps_collected += 1
 
             # 准备下一步
@@ -668,7 +694,6 @@ def main():
         values = np.asarray(val_buf, dtype=np.float32)
         dones = np.asarray(done_buf, dtype=np.float32)
 
-        # bootstrap value 简单用 0（你以后可以改成用最后一个 obs 再 forward 一次）
         values_ext = np.concatenate([values, np.array([0.0], dtype=np.float32)], axis=0)
 
         adv = compute_gae(
@@ -680,17 +705,14 @@ def main():
         )
         returns = adv + values
 
-        # 标准化优势
         adv = (adv - adv.mean()) / (adv.std() + 1e-8)
 
-        # 转 tensor
         obs_tensor = torch.from_numpy(np.asarray(obs_buf, dtype=np.float32)).to(DEVICE)
         act_tensor = torch.from_numpy(np.asarray(act_buf, dtype=np.int64)).to(DEVICE)
         logp_old_tensor = torch.from_numpy(np.asarray(logp_buf, dtype=np.float32)).to(DEVICE)
         adv_tensor = torch.from_numpy(adv.astype(np.float32)).to(DEVICE)
         ret_tensor = torch.from_numpy(returns.astype(np.float32)).to(DEVICE)
 
-        # 多 epoch + mini-batch 训练
         num_samples = T
         idxs = np.arange(num_samples)
 
@@ -721,9 +743,9 @@ def main():
                 value_loss = ((v_pred - b_ret) ** 2).mean()
 
                 loss = (
-                    policy_loss
-                    + ppo_cfg.value_coef * value_loss
-                    - ppo_cfg.entropy_coef * entropy
+                        policy_loss
+                        + ppo_cfg.value_coef * value_loss
+                        - ppo_cfg.entropy_coef * entropy
                 )
 
                 optimizer.zero_grad()
@@ -732,10 +754,24 @@ def main():
                 optimizer.step()
 
         # ===== 日志 & 曲线数据 =====
-        print(
-            f"[UPD {upd:03d}] steps={T:4d}  "
-            f"Return={ep_return:.3f}"
-        )
+        # 1) 总 return
+        print_str = f"[UPD {upd:03d}] steps={T:4d}  Return={ep_return:.3f}"
+
+        # 2) 各场景平均 reward + 步数
+        per_env_logs = []
+        for name in env_names:
+            cnt = env_step_counts[name]
+            if cnt > 0:
+                mean_r = env_reward_sums[name] / float(cnt)
+                per_env_logs.append(f"{name}: n={cnt}, mean={mean_r:.3f}")
+                if writer is not None:
+                    writer.add_scalar(f"reward/{name}_mean_per_update", mean_r, upd)
+                    writer.add_scalar(f"env_steps/{name}", cnt, upd)
+            else:
+                per_env_logs.append(f"{name}: n=0")
+
+        print_str += " | " + " | ".join(per_env_logs)
+        print(print_str)
 
         update_ids.append(upd)
         return_hist.append(ep_return)
@@ -776,6 +812,8 @@ def main():
         writer.close()
 
     print("✅ Multi-env PPO training finished.")
+    print("   Final env steps:    ", {k: int(v) for k, v in env_step_counts.items()})
+    print("   Final env episodes: ", {k: int(v) for k, v in env_episode_counts.items()})
 
 
 if __name__ == "__main__":

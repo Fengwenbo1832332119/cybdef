@@ -12,10 +12,10 @@ if __name__ == "__main__":
     path = str(inspect.getfile(CybORG))
     path = path[:-10] + '/Shared/Scenarios/Scenario1b.yaml'
 
-    agents = {'Red': B_lineAgent,'Green': GreenAgent}
+    agents = {'Red': B_lineAgent, 'Green': GreenAgent}
     # agents = {'Red': RedMeanderAgent,'Green': GreenAgent}
-    cyborg = BlueTableWrapper(CybORG(path, 'sim',agents=agents), output_mode='table')
-    
+    cyborg = BlueTableWrapper(CybORG(path, 'sim', agents=agents), output_mode='table')
+
     agent_name = 'Blue'
 
     results = cyborg.reset(agent=agent_name)

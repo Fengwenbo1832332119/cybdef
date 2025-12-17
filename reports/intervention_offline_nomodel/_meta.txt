@@ -1,3 +1,0 @@
-no_deletable_samples=0
-no_replacement_pool=0
-did_replacement=620

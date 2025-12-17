@@ -17,9 +17,9 @@ class Analyse(Action):
 
     def sim_execute(self, state) -> Observation:
         # perform monitor at start of action
-        #monitor = Monitor(session=self.session, agent=self.agent)
-        #obs = monitor.sim_execute(state)
-        
+        # monitor = Monitor(session=self.session, agent=self.agent)
+        # obs = monitor.sim_execute(state)
+
         artefacts = [DensityScout, SigCheck]
         # find relevant session on the chosen host
         sessions = [s for s in state.sessions[self.agent].values() if s.host == self.hostname]
@@ -34,6 +34,6 @@ class Analyse(Action):
             return obs
         else:
             return Observation(False)
+
     def __str__(self):
         return f"{self.__class__.__name__} {self.hostname}"
-    

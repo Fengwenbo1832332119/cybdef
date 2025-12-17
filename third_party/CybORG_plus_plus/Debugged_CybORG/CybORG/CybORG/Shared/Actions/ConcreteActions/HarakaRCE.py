@@ -17,6 +17,6 @@ class HarakaRCE(ExploitAction):
     def sim_execute(self, state: State) -> Observation:
         return self.sim_exploit(state, 25, 'smtp')
 
-    def test_exploit_works(self, target_host: Host, vuln_proc: Process):        
-        # make sure the Haraka version < 2.8.9        
+    def test_exploit_works(self, target_host: Host, vuln_proc: Process):
+        # make sure the Haraka version < 2.8.9
         return vuln_proc.version.value < ProcessVersion.HARAKA_2_8_9.value

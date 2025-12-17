@@ -14,11 +14,14 @@ class MeterpreterIPConfig(MeterpreterAction):
     def sim_execute(self, state):
         obs = Observation()
         obs.set_success(False)
-        if self.session not in state.sessions[self.agent] or state.sessions[self.agent][self.session].session_type != SessionType.MSF_SERVER:
+        if self.session not in state.sessions[self.agent] or state.sessions[self.agent][
+            self.session].session_type != SessionType.MSF_SERVER:
             return obs
-        if self.meterpreter_session not in state.sessions[self.agent] or state.sessions[self.agent][self.meterpreter_session].session_type != SessionType.METERPRETER:
+        if self.meterpreter_session not in state.sessions[self.agent] or state.sessions[self.agent][
+            self.meterpreter_session].session_type != SessionType.METERPRETER:
             return obs
-        if state.sessions[self.agent][self.session].active and state.sessions[self.agent][self.meterpreter_session].active:
+        if state.sessions[self.agent][self.session].active and state.sessions[self.agent][
+            self.meterpreter_session].active:
             host = state.hosts[state.sessions[self.agent][self.meterpreter_session].host]
             obs.set_success(True)
             for interface in host.interfaces:
@@ -32,7 +35,8 @@ class MeterpreterIPConfig(MeterpreterAction):
             obs.set_success(False)
             return obs
 
-        output = session_handler.execute_shell_action(action='ipconfig', session=str(self.meterpreter_session)).replace('\r','')
+        output = session_handler.execute_shell_action(action='ipconfig', session=str(self.meterpreter_session)).replace(
+            '\r', '')
         obs.add_raw_obs(output)
 
         """Expected output:
@@ -46,8 +50,8 @@ class MeterpreterIPConfig(MeterpreterAction):
         IPv4 Netmask : 255.0.0.0
         IPv6 Address : ::1
         IPv6 Netmask : ffff:ffff:ffff:ffff:ffff:ffff::
-        
-        
+
+
         Interface  2
         ============
         Name         : eth0
@@ -82,11 +86,11 @@ class MeterpreterIPConfig(MeterpreterAction):
                 else:
                     subnet = None
                 if ip is not None:
-                    obs.add_interface_info(hostid=str(self.meterpreter_session), interface_name=name, ip_address=ip, subnet=subnet)
+                    obs.add_interface_info(hostid=str(self.meterpreter_session), interface_name=name, ip_address=ip,
+                                           subnet=subnet)
                     obs.set_success(True)
         except IndexError as ex:
             session_handler._log_debug(output)
             raise ex
 
         return obs
-

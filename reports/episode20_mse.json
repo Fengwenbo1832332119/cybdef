@@ -1,0 +1,15 @@
+[
+  {
+    "policy_index": 0,
+    "policy_intent": "BlueAction",
+    "actor": "blue_agent",
+    "actions": [
+      "DecoyVsftpd_Enterprise0"
+    ],
+    "mse_evidence_ids": [],
+    "mse_evidence": [],
+    "all_evidence_ids": [
+      "step4_fact_suspicious"
+    ]
+  }
+]

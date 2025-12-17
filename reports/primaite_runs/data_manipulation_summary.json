@@ -1,0 +1,20 @@
+{
+  "scenario": "data_manipulation",
+  "config": "C:\\cybdef\\third_party\\PrimAITE\\src\\primaite\\config\\_package_data\\data_manipulation.yaml",
+  "episodes": 1,
+  "max_steps": 30,
+  "timestamp": "2025-11-26T02:36:49.044475Z",
+  "episodes_detail": [
+    {
+      "episode": 0,
+      "steps": 30,
+      "total_reward": -0.5500000000000005,
+      "last_reward": -0.6,
+      "total_actions": 30,
+      "detection_time": 1,
+      "response_time": 1,
+      "block_success_rate": 0.6666666666666666,
+      "false_positive_rate": 0.3333333333333333
+    }
+  ]
+}

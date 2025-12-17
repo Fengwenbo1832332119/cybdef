@@ -1,0 +1,27 @@
+# 1. 在项目根目录创建 .gitignore 文件，并写入规则
+@"
+# 忽略 Python 缓存
+__pycache__/
+*.pyc
+
+# 忽略 IDE 配置文件
+.idea/
+.vscode/
+
+# 忽略 PyTorch 模型文件 (除非你确定要上传这些大文件)
+*.pt
+*.pth
+
+# 忽略日志文件
+logs/
+*.log
+*.jsonl
+*.pt
+*.csv
+
+# 忽略测试缓存
+.pytest_cache/
+"@ | Out-File -Encoding utf8 .gitignore
+
+# 2. 重新运行 status 看看效果
+git status

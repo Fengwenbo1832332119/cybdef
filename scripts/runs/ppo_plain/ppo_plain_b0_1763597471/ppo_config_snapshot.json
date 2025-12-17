@@ -1,0 +1,17 @@
+{
+  "num_updates": 250,
+  "horizon": 2048,
+  "mini_batch_size": 256,
+  "ppo_epochs": 8,
+  "gamma": 0.99,
+  "gae_lambda": 0.95,
+  "clip_range": 0.2,
+  "pi_lr": "3e-4",
+  "vf_lr": "3e-4",
+  "entropy_coef": 0.01,
+  "value_coef": 0.5,
+  "rule_coef": 0.15,
+  "mask_alpha": 2.0,
+  "max_grad_norm": 0.5,
+  "device": "cuda"
+}

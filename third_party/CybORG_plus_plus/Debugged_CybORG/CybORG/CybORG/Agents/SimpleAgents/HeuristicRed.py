@@ -1,16 +1,18 @@
 import random
-from CybORG.Shared.Actions import DiscoverRemoteSystems, DiscoverNetworkServices, ExploitRemoteService, PrivilegeEscalate, Impact
+from CybORG.Shared.Actions import DiscoverRemoteSystems, DiscoverNetworkServices, ExploitRemoteService, \
+    PrivilegeEscalate, Impact
+
 
 class HeuristicRed():
     def __init__(self, session=0, priority=None):
         self.priority = priority
         self.parameters = {
-                'session':session,
-                'agent':'Red',
-                }
+            'session': session,
+            'agent': 'Red',
+        }
 
-        self.killchain = [DiscoverNetworkServices,ExploitRemoteService,
-                PrivilegeEscalate,Impact]
+        self.killchain = [DiscoverNetworkServices, ExploitRemoteService,
+                          PrivilegeEscalate, Impact]
 
         self.last_action = None
         self.history = []
@@ -21,7 +23,7 @@ class HeuristicRed():
         self.ip_map = {}
         self.ip_status = {}
 
-    def get_action(self,obs):
+    def get_action(self, obs):
         success = obs['success']
         if success == False:
             # Needs to be failure first because unknown (initial obs) counts as true
@@ -29,7 +31,7 @@ class HeuristicRed():
         else:
             self._process_last_action_success() if self.last_action else None
             self._process_new_ips(obs)
-        
+
         action = self._advance_killchain()
 
         return action
@@ -40,7 +42,7 @@ class HeuristicRed():
         if name == 'DiscoverRemoteSystems':
             subnet = action.subnet
             self.unexplored_subnets.remove(subnet)
-        elif name in ('DiscoverNetworkServices','ExploitRemoteService'):
+        elif name in ('DiscoverNetworkServices', 'ExploitRemoteService'):
             # Advance killchain
             ip = action.ip_address
             self.ip_status[ip] += 1
@@ -52,7 +54,7 @@ class HeuristicRed():
     def _process_last_action_failure(self):
         action = self.last_action
         name = self.last_action.__class__.__name__
-        if name in ('PrivilegeEscalate','Impact'):
+        if name in ('PrivilegeEscalate', 'Impact'):
             ip = self._get_ip(action.hostname)
             self.ip_status[ip] = 1
         elif name == 'ExploitRemoteService':
@@ -61,12 +63,12 @@ class HeuristicRed():
         else:
             raise NotImplementedError('Scans are not supposed to fail.')
 
-    def _process_new_ips(self,obs):
+    def _process_new_ips(self, obs):
         for hostid in obs:
             if hostid == 'success':
                 continue
             host = obs[hostid]
-            for interface in host.get('Interface',[]):
+            for interface in host.get('Interface', []):
                 subnet = interface.get('Subnet')
                 if (subnet not in self.known_subnets) and (subnet is not None):
                     self.known_subnets.add(subnet)
@@ -88,15 +90,15 @@ class HeuristicRed():
     def _advance_killchain(self):
         if self.unexplored_subnets:
             subnet = random.choice(list(self.unexplored_subnets))
-            action = DiscoverRemoteSystems(subnet=subnet,**self.parameters)
+            action = DiscoverRemoteSystems(subnet=subnet, **self.parameters)
         else:
 
             ip = self._choose_ip()
-            
+
             action = self._choose_exploit(ip)
             if ip not in self.ip_status:
                 self.ip_status[ip] = 0
-       
+
         self.last_action = action
         self.history.append(action)
         return action
@@ -117,20 +119,20 @@ class HeuristicRed():
         assert ip in self.ip_status
         return ip
 
-    def _choose_exploit(self,ip):
+    def _choose_exploit(self, ip):
         status = self.ip_status[ip]
         command = self.killchain[status]
         if status == 0:
-            action = command(ip_address=ip,**self.parameters)
-        elif status == 1: 
-            action = command(ip_address=ip, priority=self.priority,**self.parameters)
+            action = command(ip_address=ip, **self.parameters)
+        elif status == 1:
+            action = command(ip_address=ip, priority=self.priority, **self.parameters)
         else:
             hostname = self.ip_map[ip]
-            action = command(hostname=hostname,**self.parameters)
-        
+            action = command(hostname=hostname, **self.parameters)
+
         return action
 
-    def _get_ip(self,hostname):
+    def _get_ip(self, hostname):
         for ip in self.ip_map:
             if self.ip_map[ip] == hostname:
                 break

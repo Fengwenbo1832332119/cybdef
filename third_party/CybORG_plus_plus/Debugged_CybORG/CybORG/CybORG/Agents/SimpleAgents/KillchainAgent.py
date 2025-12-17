@@ -1,95 +1,141 @@
-from CybORG.Agents.SimpleAgents.BaseAgent import BaseAgent
 import random
-import math
-
-from ipaddress import IPv4Network, IPv4Address
-
-from CybORG.Shared.Actions import NmapScan, SambaUsermapScript, UpgradeToMeterpreter, MSFAutoroute, PingSweep, MSFEternalBlue, GetShell, FindFlag, TomcatCredentialScanner, TomcatExploit, SSHLoginExploit
+from CybORG.Shared.Actions import DiscoverRemoteSystems, DiscoverNetworkServices, ExploitRemoteService, \
+    PrivilegeEscalate, Impact
 
 
-class KillchainAgent(BaseAgent):
-
-    def __init__(self, action_size=None, state_size=None):
-
-        self.colour = 'Red'
-        self.killchains = {
-            'smb': [NmapScan, SambaUsermapScript, UpgradeToMeterpreter, MSFAutoroute, PingSweep,
-                    MSFEternalBlue, GetShell, FindFlag],
-            'tomcat': [NmapScan, TomcatCredentialScanner, TomcatExploit, MSFAutoroute, PingSweep,
-                       MSFEternalBlue, GetShell, FindFlag],
-            'brute_force': [NmapScan, SSHLoginExploit, UpgradeToMeterpreter, MSFAutoroute, PingSweep,
-                            MSFEternalBlue, GetShell, FindFlag],
+class HeuristicRed():
+    def __init__(self, session=0, priority=None):
+        self.priority = priority
+        self.parameters = {
+            'session': session,
+            'agent': 'Red',
         }
 
-        self.action_parameters = {
-            # 'Sleep':{},
-            # 'IFConfig': {'agent': 'Red', 'session': 2},  # For Linux Box
-            # 'IPConfig': {'agent': 'Red', 'session': 3},  # For Windows Box
-            'FindFlag': {'agent': 'Red', 'session': 5},  # For Windows Box
-            # 'SSHAccess':{'agent':'Red', 'session':3},  # From Linux to Windows
-            'PingSweep': {'agent': 'Red', 'session': 2, 'subnet': IPv4Network('10.0.1.0/24')},  # From Linux to Windows
-            'NmapScan': {'agent': 'Red', 'session': 1, 'subnet': IPv4Network('10.0.0.0/24')},  # From Kali to Linux
-            # 'DeleteFileLinux':{'agent':'Red',# 'session':2},
-            # 'DeleteFileWindows':{'agent':'Red', 'session':3},
-            # 'KillProcessLinux':{'agent':'Red', 'session':2},
-            # 'KillProcessWindows':{'agent':'Red', 'session':1},
-            # 'AddUserWindows':{'agent':'Red', 'session':1},
-            # 'AddUserLinux':{'agent':'Red', 'session':1},
-            # 'DisableUserWindows':{'agent':'Red', 'session':1},
-            # 'DisableUserLinux':{'agent':'Red', 'session':1},
-            # 'RemoveUserFromGroupWindows':{'agent':'Red', 'session':1},
-            # 'RemoveUserFromGroupLinux':{'agent':'Red', 'session':1},
-            # 'DirtyCowPrivilegeEscalation':{'agent':'Red', 'session'},
-            # 'LinuxKernelPrivilegeEscalation':{'agent':'Red', 'session':1},
-            # 'SMBAnonymousConnection':{'agent':'Red', 'session':1},
-            # 'ShellPS':{'agent':'Red', 'session':1},
-            # 'SystemInfo':{'agent':'Red', 'session':1},
-            # 'Uname':{'agent':'Red', 'session':1},
-            # 'NetcatConnect':{'agent':'Red', 'session':1},
-            # 'SSHHydraBruteForce':{'agent':'Red', 'session':1},
-            # 'ReadShadowFile':{'agent':'Red', 'session':1},
-            # 'ReadPasswdFile':{'agent':'Red', 'session':1},
-            # 'StopService':{'agent':'Red', 'session':1},
-            # 'StartService':{'agent':'Red', 'session':1},
-            'EternalBlue': {'agent': 'Red', 'session': 0, 'ip_address':IPv4Address('10.0.1.2')},
-            # 'GetPid':{'agent':'Red', 'session':1},
-            'GetShell':{'agent':'Red', 'session':0, 'target_session':4},
-            # 'GetUid':{'agent':'Red', 'session':1},
-            # 'LocalTime':{'agent':'Red', 'session':1},
-            'MSFAutoroute': {'agent': 'Red', 'session': 0, 'target_session': 3},
-            # 'MeterpreterPS':{'agent':'Red', 'session':1},
-            # 'MeterpreterReboot':{'agent':'Red', 'session':1},
-            'SSHLoginExploit':{'agent':'Red', 'session':0, 'ip_address': IPv4Address('10.0.0.2'), 'port':22},
-            'SambaUsermapScript': {'agent': 'Red', 'session': 0, 'ip_address': IPv4Address('10.0.0.2')},
-            # 'Schtasks':{'agent':'Red', 'session':1},
-            # 'SysInfo':{'agent':'Red', 'session':1},
-            'TomcatCredentialScanner':{'agent':'Red', 'session':0, 'ip_address': IPv4Address('10.0.0.2'), 'port':8180},
-            'TomcatExploit':{'agent':'Red', 'session':0, 'ip_address': IPv4Address('10.0.0.2'), 'port':8180,
-                             'username':'tomcat', 'password':'tomcat'},
-            'UpgradeToMeterpreter': {'agent': 'Red', 'session': 0, 'target_session': 2}
-        }
+        self.killchain = [DiscoverNetworkServices, ExploitRemoteService,
+                          PrivilegeEscalate, Impact]
 
-        self.kchoice = random.choice(list(self.killchains.keys()))
-        self.killchain = self.killchains[self.kchoice]
-        if self.kchoice == 'tomcat':
-            self.action_parameters['MSFAutoroute']['target_session'] -=1
-            self.action_parameters['GetShell']['session'] -=1
-            self.action_parameters['FindFlag']['session'] -= 1
-        self.count = 0
+        self.last_action = None
+        self.history = []
+        self.active_ip = None
 
-    def train(self, results):
-        pass
+        self.known_subnets = set()
+        self.unexplored_subnets = set()
+        self.ip_map = {}
+        self.ip_status = {}
 
-    def get_action(self, observation, action_space):
-        position = self.count % len(self.killchain)
-        action_class = self.killchain[position]
-        action_params = self.action_parameters[action_class.__name__]
-        self.count += 1
-        return action_class(**action_params)
+    def get_action(self, obs):
+        success = obs['success']
+        if success == False:
+            # Needs to be failure first because unknown (initial obs) counts as true
+            self._process_last_action_failure()
+        else:
+            self._process_last_action_success() if self.last_action else None
+            self._process_new_ips(obs)
 
-    def end_episode(self):
-        pass
+        action = self._advance_killchain()
 
-    def set_initial_values(self, action_space, observation):
-        pass
+        return action
 
+    def _process_last_action_success(self):
+        action = self.last_action
+        name = self.last_action.__class__.__name__
+        if name == 'DiscoverRemoteSystems':
+            subnet = action.subnet
+            self.unexplored_subnets.remove(subnet)
+        elif name in ('DiscoverNetworkServices', 'ExploitRemoteService'):
+            # Advance killchain
+            ip = action.ip_address
+            self.ip_status[ip] += 1
+        else:
+            # Get ip from hostname and advance killchain
+            ip = self._get_ip(action.hostname)
+            self.ip_status[ip] += 1 if self.ip_status[ip] < 3 else 0
+
+    def _process_last_action_failure(self):
+        action = self.last_action
+        name = self.last_action.__class__.__name__
+        if name in ('PrivilegeEscalate', 'Impact'):
+            ip = self._get_ip(action.hostname)
+            self.ip_status[ip] = 1
+        elif name == 'ExploitRemoteService':
+            # Assuming host is Defender
+            self.ip_status[action.ip_address] = 3
+        else:
+            raise NotImplementedError('Scans are not supposed to fail.')
+
+    def _process_new_ips(self, obs):
+        for hostid in obs:
+            if hostid == 'success':
+                continue
+            host = obs[hostid]
+            for interface in host.get('Interface', []):
+                subnet = interface.get('Subnet')
+                if (subnet not in self.known_subnets) and (subnet is not None):
+                    self.known_subnets.add(subnet)
+                    self.unexplored_subnets.add(subnet)
+
+                ip = interface.get('IP Address')
+                assert ip is not None
+                if ip not in self.ip_status:
+                    self.ip_status[ip] = 0
+
+                sysinfo = host.get('System info')
+                hostname = sysinfo.get('Hostname') if sysinfo else None
+
+                if ip not in self.ip_map:
+                    self.ip_map[ip] = hostname
+                elif self.ip_map[ip] is None:
+                    self.ip_map[ip] = hostname
+
+    def _advance_killchain(self):
+        if self.unexplored_subnets:
+            subnet = random.choice(list(self.unexplored_subnets))
+            action = DiscoverRemoteSystems(subnet=subnet, **self.parameters)
+        else:
+
+            ip = self._choose_ip()
+
+            action = self._choose_exploit(ip)
+            if ip not in self.ip_status:
+                self.ip_status[ip] = 0
+
+        self.last_action = action
+        self.history.append(action)
+        return action
+
+    def _choose_ip(self):
+        if self.active_ip is None:
+            self.active_ip = random.choice(list(self.ip_status.keys()))
+
+        ip = self.active_ip
+        status = self.ip_status[ip]
+        if (status < 3) or (self.ip_map[ip] == 'Op_Server0'):
+            pass
+        else:
+            valid_ips = [ip for ip in self.ip_status if self.ip_status[ip] < 3]
+            ip = self.active_ip = random.choice(valid_ips) if valid_ips else None
+
+        self.active_ip = ip
+        assert ip in self.ip_status
+        return ip
+
+    def _choose_exploit(self, ip):
+        status = self.ip_status[ip]
+        command = self.killchain[status]
+        if status == 0:
+            action = command(ip_address=ip, **self.parameters)
+        elif status == 1:
+            action = command(ip_address=ip, priority=self.priority, **self.parameters)
+        else:
+            hostname = self.ip_map[ip]
+            action = command(hostname=hostname, **self.parameters)
+
+        return action
+
+    def _get_ip(self, hostname):
+        for ip in self.ip_map:
+            if self.ip_map[ip] == hostname:
+                break
+        else:
+            raise NotImplementedError('Hostname missing from ip_map')
+        return ip

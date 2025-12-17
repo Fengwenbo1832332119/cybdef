@@ -12,4 +12,3 @@ for i in range(1):
     print(f"Game: {i}")
     cyborg.start(1000)
     cyborg.reset()
-

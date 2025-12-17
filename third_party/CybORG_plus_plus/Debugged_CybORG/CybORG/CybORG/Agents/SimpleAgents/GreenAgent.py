@@ -10,7 +10,7 @@ class GreenAgent(BaseAgent):
                 Sleep,
                 # GreenPingSweep,
                 GreenPortScan,
-                # GreenConnection, 
+                # GreenConnection,
                 ]
         self.hostnames = [
                 'User0',

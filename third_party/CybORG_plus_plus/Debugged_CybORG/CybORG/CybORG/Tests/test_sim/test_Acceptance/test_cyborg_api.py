@@ -47,7 +47,7 @@ def test_get_action_space(cyborg):
     for agent in ('Red','Blue'):
         action_space = cyborg.get_action_space(agent)
     assert type(action_space) == dict
-    assert list(action_space.keys()) == ['action', 'subnet', 'ip_address', 'session', 'username', 
+    assert list(action_space.keys()) == ['action', 'subnet', 'ip_address', 'session', 'username',
             'password', 'process', 'port', 'target_session', 'agent', 'hostname']
 
 def test_get_last_action(cyborg):
@@ -92,4 +92,3 @@ def test_get_reward_breakdown(cyborg):
 
     blue_rewards = cyborg.get_reward_breakdown('Blue')
     assert False
-

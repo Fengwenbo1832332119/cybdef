@@ -1,0 +1,235 @@
+{
+  "ckpt": "scripts\\runs\\blue_cyborg_base\\blue_cyborg_base_1764460481\\ac_multi_upd400.pt",
+  "episodes_per_env": 40,
+  "max_steps": 128,
+  "stochastic": false,
+  "overall": {
+    "return": {
+      "mean": -810.8049926757812,
+      "std": 0.0,
+      "min": -810.8049926757812,
+      "max": -810.8049926757812
+    },
+    "episodes": 40
+  },
+  "per_env": {
+    "cyborg": {
+      "env": "cyborg",
+      "episodes": 40,
+      "return": {
+        "mean": -810.8049926757812,
+        "std": 0.0,
+        "min": -810.8049926757812,
+        "max": -810.8049926757812
+      },
+      "length": {
+        "mean": 100.0,
+        "std": 0.0,
+        "min": 100.0,
+        "max": 100.0
+      },
+      "per_episode": [
+        {
+          "index": 1,
+          "return": -810.8050000000001,
+          "length": 100
+        },
+        {
+          "index": 2,
+          "return": -810.8050000000001,
+          "length": 100
+        },
+        {
+          "index": 3,
+          "return": -810.8050000000001,
+          "length": 100
+        },
+        {
+          "index": 4,
+          "return": -810.8050000000001,
+          "length": 100
+        },
+        {
+          "index": 5,
+          "return": -810.8050000000001,
+          "length": 100
+        },
+        {
+          "index": 6,
+          "return": -810.8050000000001,
+          "length": 100
+        },
+        {
+          "index": 7,
+          "return": -810.8050000000001,
+          "length": 100
+        },
+        {
+          "index": 8,
+          "return": -810.8050000000001,
+          "length": 100
+        },
+        {
+          "index": 9,
+          "return": -810.8050000000001,
+          "length": 100
+        },
+        {
+          "index": 10,
+          "return": -810.8050000000001,
+          "length": 100
+        },
+        {
+          "index": 11,
+          "return": -810.8050000000001,
+          "length": 100
+        },
+        {
+          "index": 12,
+          "return": -810.8050000000001,
+          "length": 100
+        },
+        {
+          "index": 13,
+          "return": -810.8050000000001,
+          "length": 100
+        },
+        {
+          "index": 14,
+          "return": -810.8050000000001,
+          "length": 100
+        },
+        {
+          "index": 15,
+          "return": -810.8050000000001,
+          "length": 100
+        },
+        {
+          "index": 16,
+          "return": -810.8050000000001,
+          "length": 100
+        },
+        {
+          "index": 17,
+          "return": -810.8050000000001,
+          "length": 100
+        },
+        {
+          "index": 18,
+          "return": -810.8050000000001,
+          "length": 100
+        },
+        {
+          "index": 19,
+          "return": -810.8050000000001,
+          "length": 100
+        },
+        {
+          "index": 20,
+          "return": -810.8050000000001,
+          "length": 100
+        },
+        {
+          "index": 21,
+          "return": -810.8050000000001,
+          "length": 100
+        },
+        {
+          "index": 22,
+          "return": -810.8050000000001,
+          "length": 100
+        },
+        {
+          "index": 23,
+          "return": -810.8050000000001,
+          "length": 100
+        },
+        {
+          "index": 24,
+          "return": -810.8050000000001,
+          "length": 100
+        },
+        {
+          "index": 25,
+          "return": -810.8050000000001,
+          "length": 100
+        },
+        {
+          "index": 26,
+          "return": -810.8050000000001,
+          "length": 100
+        },
+        {
+          "index": 27,
+          "return": -810.8050000000001,
+          "length": 100
+        },
+        {
+          "index": 28,
+          "return": -810.8050000000001,
+          "length": 100
+        },
+        {
+          "index": 29,
+          "return": -810.8050000000001,
+          "length": 100
+        },
+        {
+          "index": 30,
+          "return": -810.8050000000001,
+          "length": 100
+        },
+        {
+          "index": 31,
+          "return": -810.8050000000001,
+          "length": 100
+        },
+        {
+          "index": 32,
+          "return": -810.8050000000001,
+          "length": 100
+        },
+        {
+          "index": 33,
+          "return": -810.8050000000001,
+          "length": 100
+        },
+        {
+          "index": 34,
+          "return": -810.8050000000001,
+          "length": 100
+        },
+        {
+          "index": 35,
+          "return": -810.8050000000001,
+          "length": 100
+        },
+        {
+          "index": 36,
+          "return": -810.8050000000001,
+          "length": 100
+        },
+        {
+          "index": 37,
+          "return": -810.8050000000001,
+          "length": 100
+        },
+        {
+          "index": 38,
+          "return": -810.8050000000001,
+          "length": 100
+        },
+        {
+          "index": 39,
+          "return": -810.8050000000001,
+          "length": 100
+        },
+        {
+          "index": 40,
+          "return": -810.8050000000001,
+          "length": 100
+        }
+      ]
+    }
+  }
+}
